@@ -1,0 +1,402 @@
+---
+title: "Étude du comportement de plusieurs essences en plantation de bois d'oeuvre, Guyane Française"
+author:
+  - name: "Maël Leborgne"
+    authsuperscript: 1*
+    orcid: 0000-0000-0000-0000
+  - name: "Rozenn Bourquin"
+    authsuperscript: 2
+affiliation:
+  - affsuperscript: 1
+    dptuniv: "Department / University"
+    address: >
+      Street address,
+      Zip code,
+      Country.
+  - affsuperscript: 2
+    dptuniv: "Department / University"
+    address: >
+      Street address,
+      Zip code,
+      Country.
+corrauthor:
+    email: name@company.com
+    url: https://www.company.com
+abstract: >
+  Summary of the article.
+  Mandatory.
+  
+  
+  Use double line feed for a new paragraph.
+keywords: [keyword1, keyword2, etc]
+JEL: [Code1, Code2, etc, MayBeDeleted]
+acknowledgements: >
+  Acknowledgements. 
+  
+  
+  May be deleted.
+journalinfo: "Publication reference"
+archive: "DOI: xxx/xx"
+# Date format: '%Y %B %d' for distill
+date: "`r format(Sys.time(), '%Y %B %d')`"
+url: https://GitHubID.github.io/Repository/
+github-repo: GitHubID/Repository
+lang: en-US
+otherlangs: [fr-FR,it]
+keywordlabel: Keywords
+JELlabel: JEL
+acknowledgementslabel: Acknowledgements
+corrauthorlabel: Corresponding author
+# Author separator: \par (no quote) for one author per line, "," (between quotes) else
+authorseparator: \par
+bibliography: references.bib
+biblio-style: chicago
+toc-depth: 3
+fontsize: 10pt
+urlcolor: blue
+preamble: >
+  \hyphenation{bio-di-ver-si-ty sap-lings}
+always_allow_html: yes
+csquotes: true
+output:
+  bookdown::html_document2:
+    base_format: distill::distill_article
+    toc: yes
+    toc_float: yes
+    code_folding: show
+    highlight_downlit: yes
+  rmdformats::downcute:
+    use_bookdown: yes
+    lightbox: yes
+  bookdown::gitbook:
+    config:
+      download: "pdf"
+      sharing:
+        github: yes
+  bookdown::pdf_book:
+    template: latex/template.tex
+    citation_package: natbib
+    latex_engine: xelatex
+    keep_tex: yes
+  bookdown::word_document2: default
+editor_options: 
+  markdown: 
+    wrap: sentence
+---
+
+```{r}
+#| label: DoNotModify
+#| include: false
+### Utilities. Do not modify.
+# Installation of packpred if necessary
+install_packpred <- function(packpred) {
+  install_package <- function(package) {
+    if (!package %in% installed.packages()[, 1]) {
+      install.packages(package, repos = "https://cran.rstudio.com/")
+    }
+  }
+  invisible(sapply(packpred, install_package))
+}
+
+# Basic packpred
+install_packpred(c("bookdown", "formatR", "kableExtra", "ragg"))
+
+# Chunk font size hook: allows size='small' or any valid Latex font size in chunk options
+def.chunk.hook  <- knitr::knit_hooks$get("chunk")
+knitr::knit_hooks$set(chunk = function(x, options) {
+  x <- def.chunk.hook(x, options)
+  ifelse(
+    options$size != "normalsize", 
+    paste0("\n \\", options$size,"\n\n", x, "\n\n \\normalsize"), 
+    x
+  )
+})
+```
+
+```{r}
+#| label: Options
+#| include: false
+### Customized options for this document
+# Add necessary packpred here
+packpred <- c("tidyverse")
+# Install them
+install_packpred(packpred)
+
+# knitr options
+knitr::opts_chunk$set(
+  cache =   FALSE,    # Cache chunk results
+  include = TRUE,     # Show/Hide chunks
+  echo =    TRUE,     # Show/Hide code
+  warning = FALSE,    # Show/Hide warnings
+  message = FALSE,    # Show/Hide messpred
+  # Figure alignment and size
+  fig.align = 'center', out.width = '80%',
+  # Graphic devices (ragg_png is better than standard png)
+  dev = c("ragg_png", "pdf"),
+  # Code chunk format
+  tidy = TRUE, tidy.opts = list(blank = FALSE, width.cutoff = 50),
+  size = "scriptsize", knitr.graphics.auto_pdf = TRUE
+  )
+options(width = 50)
+
+# ggplot style
+library("tidyverse")
+theme_set(theme_bw())
+theme_update(
+  panel.background = element_rect(fill = "transparent", colour = NA),
+  plot.background = element_rect(fill = "transparent", colour = NA)
+)
+knitr::opts_chunk$set(dev.args = list(bg = "transparent"))
+
+# Random seed
+set.seed(973)
+```
+
+# Introduction
+
+## Contexte
+
+La Guyane française est un territoire de 84 millions d'hectares (Mha).
+La majorité (96%) de la surface de cette région d'Amérique latine est recouverte par la forêt Amazonienne.
+Depuis 2005, l'office nationale des forêts (ONF) exploite le domaine forestier permanent (DFP) qui correspond à une zone de 2,4 Mha et qui forme une bande entre les zones habitées sur le littorale et les forêts non exploitées.
+Cette zone de forêt naturelle est exploitée selon des règles de gestion durable du label PEFC.
+Ces règles comprennent des rotations de 65 ans entre 2 coupes, une intensité d’exploitation de 5 tiges/ha et la mise en place de séries d’intérêt écologique d’où l’exploitation forestière est exclue.
+L’exploitation forestière, malgré un large éventail d’espèces (100) technologiquement utilisables et de qualité remarquable, n’exploite que 15 à 30 espèces et se concentre sur seulement 3 espèces.
+Or les pratiques d’exploitation actuelles ne permettent pas la reconstitution du volume commercial en fin de rotation (Piponiot et al 2019).
+
+Aux enjeux de conservation et protection de la forêt, s'ajoute un enjeu de démographie.
+En effet, la Guyane connaît une forte croissance démographique (+1,7% par ans entre 2020 et 2023) (INSEE, 2019).
+Cette croissance démographique entraîne une augmentation de la demande en logement, et donc en bois d’œuvre.
+Ainsi la filière Forêt-Bois prévoit le développement du modèle de plantation forestière dans son Programme Régionale de la Forêt et du Bois 2019-2029 (PRFB) avec un objectif de 5 000 hectares de plantation supplémentaires.
+
+Le derniers rapport sur l'état des plantations de l'ONF (Nicolini, 2023).
+
+## Objectifs
+
+1.  Comparer les performances des essences
+
+2.  (Évaluer la rentabilité à long terme) -\> hors cadre ?
+
+3.  Adapter le choix des essences aux sites
+
+4.  Tester des scénarios de gestion
+
+# Matériel et méthode {#markdown}
+
+# Résultats
+
+## Modèle de Croissance
+
+Un **modèle de croissance forestier** est un outil mathématique qui permet de prédire l’évolution d’un arbre ou d’un peuplement au cours du temps (source).
+On peut donc estimer l'évolution de la croissance en diamètre, en hauteur, ou en volume du bois à partir de **mesures dendrométriques**, de **variables écologiques** et du **scénario de gestion**.
+
+**Modèle de Chapman-Richards :**
+
+$$
+Y=A*(1-e^{-kX})^m
+$$
+
+Y : Diamètre, X : âge, (A,k,m) = paramètres à estimer (asymptote, vitesse, forme)
+
+**Exemple avec données fictives :**
+
+```{r}
+#| label: fig-diam
+#| fig-cap: Modèles de croissance en diamètre avec données fictives
+#| echo: false
+
+# ---- Librairies ----
+library(tidyverse)
+library(ggplot2)
+
+# ---- Données Fictives : Diamètre et % de survivants ----
+Obs <- data.frame(
+  age = c(5, 10, 20, 30, 40, 50),
+  diam_Wacapou = c(6, 11, 20, 27, 32, 35),
+  diam_BoisBlanc = c(10, 18, 28, 33, 36, 38),
+  surv_Wacapou = c(100, 98, 94, 90, 88, 86),
+  surv_BoisBlanc = c(100, 92, 80, 65, 50, 40)
+)
+
+# ---- Modèles de croissance : Chapman-Richards ----
+mod_wacapou <- nls(diam_Wacapou ~ A*(1 - exp(-k*age))^m,
+                   data = Obs, start = list(A=40, k=0.06, m=1.5))
+
+mod_boisblanc <- nls(diam_BoisBlanc ~ A*(1 - exp(-k*age))^m,
+                     data = Obs, start = list(A=45, k=0.08, m=1.2))
+
+# ---- Prédictions des Diamètres ----
+pred <- data.frame(age = seq(1, 60, by=1))
+pred$diam_Wacapou <- predict(mod_wacapou, pred)
+pred$diam_BoisBlanc <- predict(mod_boisblanc, pred)
+
+# ---- Préparer données pour le graphique de croissance ----
+# Données du modèle
+diam_plot_pred <- pred %>% 
+  pivot_longer(cols = starts_with("diam_"), names_to = "essence", values_to = "diam") %>%
+  mutate(essence = recode(essence,
+                          "diam_Wacapou" = "Bagassa guianensis (Wacapou)",
+                          "diam_BoisBlanc" = "Simarouba amara (Bois blanc)"))
+# Données d'observation
+diam_plot_obs <- Obs %>%
+  select(age, diam_Wacapou, diam_BoisBlanc) %>%
+  pivot_longer(cols = starts_with("diam_"), names_to = "essence", values_to = "diam") %>%
+  mutate(essence = recode(essence,
+                          "diam_Wacapou" = "Bagassa guianensis (Wacapou)",
+                          "diam_BoisBlanc" = "Simarouba amara (Bois blanc)"))
+
+# ---- Graphique croissance en diamètre avec points expérimentaux ----
+ggplot() +
+  geom_line(data = diam_plot_pred, aes(x = age, y = diam, color = essence), linewidth = 1.3) +
+  geom_point(data = diam_plot_obs, aes(x = age, y = diam, color = essence), size = 3, shape = 16) +
+  theme_minimal() +
+  labs(x = "Âge (ans)", y = "Diamètre (cm)", color = "Essence") +
+  theme(plot.title = element_text(face = "bold", size = 14))
+
+
+```
+
+## Modèle de Mortalité
+
+Un modèle de mortalité est un outil mathématique qui prédit la probabilité qu’un arbre meure au cours d’une période donnée (source).
+Il peut prendre en compte :
+
+-   la **taille de l’arbre** (les petits meurent plus souvent par compétition),
+
+-   la **densité du peuplement** (stress dû à la concurrence),
+
+-   les **conditions écologiques** (sécheresse, inondation, sols pauvres, etc.),
+
+-   les **caractéristiques propres à l’essence** (tolérance à l’ombre, longévité, résistance aux maladies).
+
+Ici on ne peut que prendre en compte la taille de l'arbre, voir les extrêmes de pluviométrie annuelle (haut, bas).
+(autre idée ?)
+
+**Modèle logistique :**
+
+$$
+Y=\frac{A}{1+Be^{-kX}}
+$$
+
+Y : Taux de mortalité, X : Âge, (A,B,k,m) = paramètres à estimer (asymptote, vitesse, forme)
+
+**Exemple avec données fictives :**
+
+```{r}
+#| label: fig-mort
+#| fig-cap: Modèles de mortalité avec données fictives
+#| echo: false
+
+# ---- Calcul de la mortalité ----
+Obs <- Obs %>%
+  mutate(
+    mort_Wacapou = 100 - surv_Wacapou,
+    mort_BoisBlanc = 100 - surv_BoisBlanc
+    )
+
+# ---- Modèles de mortalité logistiques ----
+mod_mort_wac <- nls(mort_Wacapou ~ 100 / (1 + exp(-(a + b*age))),
+                    data = Obs, start = list(a=-5, b=0.1))
+
+mod_mort_bb <- nls(mort_BoisBlanc ~ 100 / (1 + exp(-(a + b*age))),
+                   data = Obs, start = list(a=-3, b=0.15))
+
+# ---- Prédictions ----
+pred$mort_Wacapou <- predict(mod_mort_wac, pred)
+pred$mort_BoisBlanc <- predict(mod_mort_bb, pred)
+
+# ---- Préparer données pour le graphique de mortalité ----
+# ---- Prédictions ----
+mort_plot_pred <- pred %>%
+  pivot_longer(cols = starts_with("mort_"), names_to = "essence", values_to = "mort") %>%
+  mutate(essence = recode(essence,
+                          "mort_Wacapou" = "Bagassa guianensis (Wacapou)",
+                          "mort_BoisBlanc" = "Simarouba amara (Bois blanc)"))
+
+# ---- Obsevations ----
+mort_plot_obs <- Obs %>%
+  select(age, mort_Wacapou, mort_BoisBlanc) %>%
+  pivot_longer(cols = starts_with("mort_"), names_to = "essence", values_to = "mort") %>%
+  mutate(essence = recode(essence,
+                          "mort_Wacapou" = "Bagassa guianensis (Wacapou)",
+                          "mort_BoisBlanc" = "Simarouba amara (Bois blanc)"))
+
+# ---- Graphique mortalité avec points expérimentaux ----
+ggplot() +
+  geom_line(data = mort_plot_pred, aes(x = age, y = mort, color = essence), linewidth = 1.3) +
+  geom_point(data = mort_plot_obs, aes(x = age, y = mort, color = essence), size = 3, shape = 16) +
+  theme_minimal() +
+  labs(x = "Âge (ans)", y = "Mortalité cumulée (%)", color = "Essence") +
+  theme(plot.title = element_text(face = "bold", size = 14))
+```
+
+## Modèle de production de Bois d'oeuvre
+
+```{r}
+#| label: fig-vol
+#| fig-cap: Modèles de production de Bois d'oeuvre avec données fictives
+#| echo: false
+
+# ---- Hypothèses sylvicoles ----
+densite_init <- 800       # arbres/ha
+f <- 0.45                 # facteur de forme
+
+# ---- Obs : Calculs de Volume ----
+Obs <- Obs %>%
+  mutate(
+    H_Wacapou = 0.5 * diam_Wacapou + 10, # Hauteur simulée
+    H_BoisBlanc = 0.6 * diam_BoisBlanc + 8,
+    V_Wacapou = pi * (diam_Wacapou/200)^2 * H_Wacapou * f, # Volume individuel
+    V_BoisBlanc = pi * (diam_BoisBlanc/200)^2 * H_BoisBlanc * f,
+    Nsurv_Wacapou = densite_init * (1 - (mort_Wacapou / 100)), # Survivants
+    Nsurv_BoisBlanc = densite_init * (1 - (mort_BoisBlanc / 100)),
+    Vol_ha_Wacapou = Nsurv_Wacapou * V_Wacapou, # Volume total par hectare (m³/ha)
+    Vol_ha_BoisBlanc = Nsurv_BoisBlanc * V_BoisBlanc
+  )
+
+# ---- Pred : Calculs de Volume ----
+pred <- pred %>%
+  mutate(
+    H_Wacapou = 0.5 * diam_Wacapou + 10, # Hauteur
+    H_BoisBlanc = 0.6 * diam_BoisBlanc + 8,
+    V_Wacapou = pi * (diam_Wacapou/200)^2 * H_Wacapou * f, # Volume individuel
+    V_BoisBlanc = pi * (diam_BoisBlanc/200)^2 * H_BoisBlanc * f,
+    Nsurv_Wacapou = densite_init * (1 - (pred$mort_Wacapou / 100)), # Survivants
+    Nsurv_BoisBlanc = densite_init * (1 - (pred$mort_BoisBlanc / 100)),
+    Vol_ha_Wacapou = Nsurv_Wacapou * V_Wacapou, # Volume total par hectare (m³/ha)
+    Vol_ha_BoisBlanc = Nsurv_BoisBlanc * V_BoisBlanc
+  )
+
+# ---- Préparer données pour le graphique de mortalité ----
+# ---- Observations ----
+vol_plot_obs <- Obs %>%
+  select(age, Vol_ha_Wacapou, Vol_ha_BoisBlanc) %>%
+  pivot_longer(cols = starts_with("Vol_ha"), names_to = "essence", values_to = "volume") %>%
+  mutate(essence = recode(essence,
+                          "Vol_ha_Wacapou" = "Bagassa guianensis (Wacapou)",
+                          "Vol_ha_BoisBlanc" = "Simarouba amara (Bois blanc)"))
+# ---- Prédictions ----
+vol_plot_pred <- pred %>%
+  select(age, Vol_ha_Wacapou, Vol_ha_BoisBlanc) %>%
+  pivot_longer(cols = starts_with("Vol_ha"), names_to = "essence", values_to = "volume") %>%
+  mutate(essence = recode(essence,
+                          "Vol_ha_Wacapou" = "Bagassa guianensis (Wacapou)",
+                          "Vol_ha_BoisBlanc" = "Simarouba amara (Bois blanc)"))
+
+# ---- Graphique comparatif de production ----
+ggplot() +
+  # Courbes simulées
+  geom_line(data = vol_plot_pred, aes(x = age, y = volume, color = essence), linewidth = 1.4) +
+  # Points expérimentaux
+  geom_point(data = vol_plot_obs, aes(x = age, y = volume, color = essence), size = 3, shape = 16) +
+  theme_minimal() +
+  labs(x = "Âge (ans)", y = "Volume total (m³/ha)", color = "Essence") +
+  theme(plot.title = element_text(face = "bold", size = 14))
+
+
+
+```
+
+Un autre point important en sylviculture est l'estimation de la **rotation optimale**, c'est à dire l'âge idéal de coupe pour maximiser la valeur du Bois.
+
+## 
