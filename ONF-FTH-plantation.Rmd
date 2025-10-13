@@ -167,19 +167,19 @@ Or les pratiques d’exploitation actuelles ne permettent pas la reconstitution 
 Aux enjeux de conservation et protection de la forêt, s'ajoute un enjeu de démographie.
 En effet, la Guyane connaît une forte croissance démographique (+1,7% par ans entre 2020 et 2023) (INSEE, 2019).
 Cette croissance démographique entraîne une augmentation de la demande en logement, et donc en bois d’œuvre.
-Ainsi la filière Forêt-Bois prévoit le développement du modèle de plantation forestière dans son Programme Régionale de la Forêt et du Bois 2019-2029 (PRFB) avec un objectif de 5 000 hectares de plantation supplémentaires.
+Ainsi la filière Forêt-Bois prévoit le développement des modèles de plantation forestière dans son Programme Régionale de la Forêt et du Bois 2019-2029 (PRFB) avec un objectif de 5 000 hectares de plantation supplémentaires.
 
-Le derniers rapport sur l'état des plantations de l'ONF (Nicolini, 2023).
+Le dévellopement du modèle de plantation forestière nécessite un état des lieux des plantations actuelles de l'ONF en Guyane.
+Le derniers rapport de suivi fait le bilan de XX parcelles expérimentales pour XX espèces avec un recul de XX années pour certaines d'entre elles (Nicolini, 2023).
+L'édition d'un nouvel article est motivé par la nécessité de mettre à jour la base de données avec un nouvel inventaire et de synthétiser l’ensemble des données afin d'émettre des recommandations sur les essences à développer en plantation de Bois d’œuvre.
 
 ## Objectifs
 
 1.  Comparer les performances des essences
 
-2.  (Évaluer la rentabilité à long terme) -\> hors cadre ?
+2.  Adapter le choix des essences aux sites (sol, précipitations, FWI)
 
-3.  Adapter le choix des essences aux sites
-
-4.  Tester des scénarios de gestion
+3.  Tester des scénarios de gestion (densité de plantation, plantation multispecifiques, modalités de préparation de la parcelle, fréquence d'entretient)
 
 # Matériel et méthode {#markdown}
 
