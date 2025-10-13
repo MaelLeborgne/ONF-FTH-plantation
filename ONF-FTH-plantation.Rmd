@@ -323,14 +323,36 @@ ggplot() +
 
 ```
 
-## Modèle de production de Bois d'oeuvre
+## Modèle de production de Bois d’œuvre
+
+La combinaison du modèle de croissance et du modèle de mortalité permet d'obtenir un modèle de production volumique.
+
+Soit le volume individuel d'un arbre :
+
+$$
+V_{ind}=\pi*(\frac{D_{130}}{2})²*H_{tot}*f
+$$
+
+Avec $D_{130}$ le diamètre du tronc en mètre à 130 cm,\
+$H_{tot}$ la hauteur totale de l'arbre,\
+et $f$ le facteur de forme.
+
+On concidère le volume de bois produit par hectare (en m³/ha):
+
+$$
+V_{ha}=\frac{N_{surv}*V_{ind}}{S}
+$$
+
+Avec $V_{ind}$ le volume individuel moyen d'un arbre (en m³),\
+$N_{surv}$ le nombre de survivant sur la parcelle,\
+et $S$ la surface de la parcelle considérée (en hectares).
 
 ```{r}
 
-# ---- Fonction de volume ----
+# ---- Fonction de volume individuel ----
 calc_volume <- function(diam){
-  H <- 0.55 * diam + 9   # approximation générale
-  V <- pi * (diam/200)^2 * H * f
+  H <- 0.55 * diam + 9   # hauteur ficive à partir du diamètre
+  V <- pi * (diam/200)^2 * H * f # volume avec facteur de forme
   return(V)
 }
 
@@ -340,7 +362,7 @@ vol_obs <- Obs_diam %>%
   mutate(
     V_ind = calc_volume(diam),
     N_surv = densite_init * (1 - mort/100),
-    Vol_ha = N_surv * V_ind
+    Vol_ha = N_surv * V_ind # volume par hectare (avec surface de parcelle = 1ha)
   )
 
 # ---- Volume prédictions ----
@@ -349,12 +371,12 @@ vol_pred <- pred_diam %>%
   mutate(
     V_ind = calc_volume(diam),
     N_surv = densite_init * (1 - mort/100),
-    Vol_ha = N_surv * V_ind
+    Vol_ha = N_surv * V_ind # volume par hectare (avec surface de parcelle = 1ha)
   )
 
 # ---- Graphique : volume ----
 ggplot() +
-  geom_line(data = vol_pred, aes(x = age, y = Vol_ha, color = essence), linewidth = 1.2) +
+  geom_line(data = vol_pred, aes(x = age, y = Vol_ha, color = essence), linewidth = 1) +
   geom_point(data = vol_obs, aes(x = age, y = Vol_ha, color = essence), size = 1, shape = 16) +
   theme_minimal() +
   labs(x = "Âge (ans)", y = "Volume total (m³/ha)", color = "Essence") +
