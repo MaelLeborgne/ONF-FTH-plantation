@@ -196,8 +196,6 @@ library(ggplot2)
 set.seed(123)
 
 # ---- Paramètres sylvicoles ----
-densite_init <- 800
-f <- 0.45
 essences <- paste0("Essence", 1:10)
 ages_obs <- c(5,10,20,30,40,50)
 ages_pred <- 0:100
@@ -217,7 +215,7 @@ $$
 
 Y : Diamètre, X : âge, (A,k,m) = paramètres à estimer (asymptote, vitesse, forme)
 
-**Exemple avec données fictives :**
+**Exemples avec données fictives :**
 
 ```{r}
 #| label: fig-diam
@@ -243,7 +241,7 @@ mods_diam <- Obs_diam %>%
 names(mods_diam) <- essences
 
 # Prédictions diamètre
-pred_diam <- expand_grid(age = ages_pred, essence = essences) %>%
+Pred_diam <- expand_grid(age = ages_pred, essence = essences) %>%
   group_by(essence) %>%
   mutate(diam = if (!is.null(mods_diam[[unique(essence)]]))
            predict(mods_diam[[unique(essence)]], newdata = data.frame(age=age))
@@ -251,12 +249,56 @@ pred_diam <- expand_grid(age = ages_pred, essence = essences) %>%
 
 # ---- Graphique : diamètre ----
 ggplot() +
-  geom_line(data = pred_diam, aes(x = age, y = diam, color = essence), linewidth = 1) +
+  geom_line(data = Pred_diam, aes(x = age, y = diam, color = essence), linewidth = 1) +
   geom_point(data = Obs_diam, aes(x = age, y = diam, color = essence), size = 1) +
   theme_minimal() +
   labs(x = "Âge (ans)", y = "Diamètre (cm)", color = "Essence") +
   theme(plot.title = element_text(face = "bold", size = 14))
 
+
+```
+
+```{r}
+#| label: fig-haut
+#| fig-cap: Modèles de croissance en hauteur avec données fictives (10 essences)
+#| echo: false
+
+# ---- Données fictives : hauteur ----
+Obs_haut <- expand_grid(age = ages_obs, essence = essences) %>%
+  mutate(
+    A = runif(n(), 20, 35),       # hauteur asymptotique (m)
+    k = runif(n(), 0.03, 0.08),   # taux de croissance
+    m = runif(n(), 1, 1.5),     # forme de la courbe
+    haut = A * (1 - exp(-k * age))^m + rnorm(n(), 0, 0.2) # bruit réaliste
+  )
+
+# ---- Modèles Chapman-Richards par essence ----
+mods_haut <- Obs_haut %>%
+  group_by(essence) %>%
+  group_map(~ tryCatch(
+    nls(haut ~ A*(1 - exp(-k*age))^m, data = .x, start = list(A=22,k=0.05,m=1.2)),
+    error = function(e) NULL
+  ))
+names(mods_haut) <- essences
+
+# ---- Prédictions hauteur ----
+Pred_haut <- expand_grid(age = ages_pred, essence = essences) %>%
+  group_by(essence) %>%
+  mutate(haut = if (!is.null(mods_haut[[unique(essence)]]))
+           predict(mods_haut[[unique(essence)]], newdata = data.frame(age=age))
+         else NA)
+
+# ---- Graphique : hauteur ----
+ggplot() +
+  geom_line(data = Pred_haut, aes(x = age, y = haut, color = essence), linewidth = 1) +
+  geom_point(data = Obs_haut, aes(x = age, y = haut, color = essence), size = 1) +
+  theme_minimal() +
+  labs(
+    x = "Âge (ans)",
+    y = "Hauteur (m)",
+    color = "Essence"
+  ) +
+  theme(plot.title = element_text(face = "bold", size = 14))
 
 ```
 
@@ -307,7 +349,7 @@ mods_mort <- Obs_mort %>%
 names(mods_mort) <- essences
 
 # Prédictions mortalité
-pred_mort <- expand_grid(age = ages_pred, essence = essences) %>%
+Pred_mort <- expand_grid(age = ages_pred, essence = essences) %>%
   group_by(essence) %>%
   mutate(mort = if (!is.null(mods_mort[[unique(essence)]]))
            predict(mods_mort[[unique(essence)]], newdata = data.frame(age=age))
@@ -315,7 +357,7 @@ pred_mort <- expand_grid(age = ages_pred, essence = essences) %>%
 
 # ---- Graphique : mortalité ----
 ggplot() +
-  geom_line(data = pred_mort, aes(x = age, y = mort, color = essence), linewidth = 1) +
+  geom_line(data = Pred_mort, aes(x = age, y = mort, color = essence), linewidth = 1) +
   geom_point(data = Obs_mort, aes(x = age, y = mort, color = essence), size = 1) +
   theme_minimal() +
   labs(x = "Âge (ans)", y = "Mortalité cumulée (%)", color = "Essence") +
@@ -349,27 +391,30 @@ et $S$ la surface de la parcelle considérée (en hectares).
 
 ```{r}
 
+# ---- Paramètres sylvicoles ----
+densite_init <- 800 # nombre d'arbre à l'hectare
+f <- 0.45 # facteur de forme
+
 # ---- Fonction de volume individuel ----
-calc_volume <- function(diam){
-  H <- 0.55 * diam + 9   # hauteur ficive à partir du diamètre
-  V <- pi * (diam/200)^2 * H * f # volume avec facteur de forme
+calc_volume <- function(D,H){
+  V <- pi * (D/200)^2 * H * f # volume avec facteur de forme (f=0.45)
   return(V)
 }
 
 # ---- Volume observations ----
-vol_obs <- Obs_diam %>%
+vol_obs <- left_join(Obs_diam,Obs_haut,by=c("age","essence")) %>%
   left_join(Obs_mort, by = c("age","essence")) %>%
   mutate(
-    V_ind = calc_volume(diam),
-    N_surv = densite_init * (1 - mort/100),
+    V_ind = calc_volume(diam,haut),
+    N_surv = densite_init * (1 - mort/100), # denstié = 800 (set in the begining)
     Vol_ha = N_surv * V_ind # volume par hectare (avec surface de parcelle = 1ha)
   )
 
 # ---- Volume prédictions ----
-vol_pred <- pred_diam %>%
-  left_join(pred_mort, by = c("age","essence")) %>%
+vol_pred <- left_join(Pred_diam,Pred_haut,by=c("age","essence")) %>%
+  left_join(Pred_mort, by = c("age","essence")) %>%
   mutate(
-    V_ind = calc_volume(diam),
+    V_ind = calc_volume(diam,haut),
     N_surv = densite_init * (1 - mort/100),
     Vol_ha = N_surv * V_ind # volume par hectare (avec surface de parcelle = 1ha)
   )
