@@ -185,6 +185,25 @@ Le derniers rapport sur l'état des plantations de l'ONF (Nicolini, 2023).
 
 # Résultats
 
+```{r}
+#| echo: false
+
+# ---- Initialisation du Programme ----
+
+library(tidyverse)
+library(ggplot2)
+
+set.seed(123)
+
+# ---- Paramètres sylvicoles ----
+densite_init <- 800
+f <- 0.45
+essences <- paste0("Essence", 1:10)
+ages_obs <- c(5,10,20,30,40,50)
+ages_pred <- 0:100
+
+```
+
 ## Modèle de Croissance
 
 Un **modèle de croissance forestier** est un outil mathématique qui permet de prédire l’évolution d’un arbre ou d’un peuplement au cours du temps (source).
@@ -202,53 +221,38 @@ Y : Diamètre, X : âge, (A,k,m) = paramètres à estimer (asymptote, vitesse, f
 
 ```{r}
 #| label: fig-diam
-#| fig-cap: Modèles de croissance en diamètre avec données fictives
+#| fig-cap: Modèles de croissance en diamètre avec données fictives (10 essences)
 #| echo: false
 
-# ---- Librairies ----
-library(tidyverse)
-library(ggplot2)
+# ---- Données fictives : diamètre ----
+Obs_diam <- expand_grid(age = ages_obs, essence = essences) %>%
+  mutate(
+    A = runif(n(), 35, 42),
+    k = runif(n(), 0.05, 0.07),
+    m = runif(n(), 1.2, 1.4),
+    diam = A * (1 - exp(-k * age))^m + rnorm(n(), 0, 0.8)
+  )
 
-# ---- Données Fictives : Diamètre et % de survivants ----
-Obs <- data.frame(
-  age = c(5, 10, 20, 30, 40, 50),
-  diam_Wacapou = c(6, 11, 20, 27, 32, 35),
-  diam_BoisBlanc = c(10, 18, 28, 33, 36, 38),
-  surv_Wacapou = c(100, 98, 94, 90, 88, 86),
-  surv_BoisBlanc = c(100, 92, 80, 65, 50, 40)
-)
+# Modèles Chapman-Richards par essence
+mods_diam <- Obs_diam %>%
+  group_by(essence) %>%
+  group_map(~ tryCatch(
+    nls(diam ~ A*(1 - exp(-k*age))^m, data = .x, start = list(A=40,k=0.06,m=1.3)),
+    error = function(e) NULL
+  ))
+names(mods_diam) <- essences
 
-# ---- Modèles de croissance : Chapman-Richards ----
-mod_wacapou <- nls(diam_Wacapou ~ A*(1 - exp(-k*age))^m,
-                   data = Obs, start = list(A=40, k=0.06, m=1.5))
+# Prédictions diamètre
+pred_diam <- expand_grid(age = ages_pred, essence = essences) %>%
+  group_by(essence) %>%
+  mutate(diam = if (!is.null(mods_diam[[unique(essence)]]))
+           predict(mods_diam[[unique(essence)]], newdata = data.frame(age=age))
+         else NA)
 
-mod_boisblanc <- nls(diam_BoisBlanc ~ A*(1 - exp(-k*age))^m,
-                     data = Obs, start = list(A=45, k=0.08, m=1.2))
-
-# ---- Prédictions des Diamètres ----
-pred <- data.frame(age = seq(1, 60, by=1))
-pred$diam_Wacapou <- predict(mod_wacapou, pred)
-pred$diam_BoisBlanc <- predict(mod_boisblanc, pred)
-
-# ---- Préparer données pour le graphique de croissance ----
-# Données du modèle
-diam_plot_pred <- pred %>% 
-  pivot_longer(cols = starts_with("diam_"), names_to = "essence", values_to = "diam") %>%
-  mutate(essence = recode(essence,
-                          "diam_Wacapou" = "Bagassa guianensis (Wacapou)",
-                          "diam_BoisBlanc" = "Simarouba amara (Bois blanc)"))
-# Données d'observation
-diam_plot_obs <- Obs %>%
-  select(age, diam_Wacapou, diam_BoisBlanc) %>%
-  pivot_longer(cols = starts_with("diam_"), names_to = "essence", values_to = "diam") %>%
-  mutate(essence = recode(essence,
-                          "diam_Wacapou" = "Bagassa guianensis (Wacapou)",
-                          "diam_BoisBlanc" = "Simarouba amara (Bois blanc)"))
-
-# ---- Graphique croissance en diamètre avec points expérimentaux ----
+# ---- Graphique : diamètre ----
 ggplot() +
-  geom_line(data = diam_plot_pred, aes(x = age, y = diam, color = essence), linewidth = 1.3) +
-  geom_point(data = diam_plot_obs, aes(x = age, y = diam, color = essence), size = 3, shape = 16) +
+  geom_line(data = pred_diam, aes(x = age, y = diam, color = essence), linewidth = 1) +
+  geom_point(data = Obs_diam, aes(x = age, y = diam, color = essence), size = 1) +
   theme_minimal() +
   labs(x = "Âge (ans)", y = "Diamètre (cm)", color = "Essence") +
   theme(plot.title = element_text(face = "bold", size = 14))
@@ -283,116 +287,78 @@ Y : Taux de mortalité, X : Âge, (A,B,k,m) = paramètres à estimer (asymptote,
 **Exemple avec données fictives :**
 
 ```{r}
-#| label: fig-mort
-#| fig-cap: Modèles de mortalité avec données fictives
-#| echo: false
-
-# ---- Calcul de la mortalité ----
-Obs <- Obs %>%
+# ---- Données fictives : mortalité ----
+Obs_mort <- expand_grid(age = ages_obs, essence = essences) %>%
   mutate(
-    mort_Wacapou = 100 - surv_Wacapou,
-    mort_BoisBlanc = 100 - surv_BoisBlanc
-    )
+    a = runif(n(), -6, -3),
+    b = runif(n(), 0.05, 0.15),
+    mort = 100 / (1 + exp(-(a + b*age)))
+  ) %>%
+  select(age, essence, mort)
 
-# ---- Modèles de mortalité logistiques ----
-mod_mort_wac <- nls(mort_Wacapou ~ 100 / (1 + exp(-(a + b*age))),
-                    data = Obs, start = list(a=-5, b=0.1))
+# Modèles logistiques par essence
+mods_mort <- Obs_mort %>%
+  group_by(essence) %>%
+  group_map(~ tryCatch({
+    nls(mort ~ 100 / (1 + exp(-(a + b*age))),
+        data = .x,
+        start = list(a = -5, b = 0.1))
+  }, error = function(e) NULL))
+names(mods_mort) <- essences
 
-mod_mort_bb <- nls(mort_BoisBlanc ~ 100 / (1 + exp(-(a + b*age))),
-                   data = Obs, start = list(a=-3, b=0.15))
+# Prédictions mortalité
+pred_mort <- expand_grid(age = ages_pred, essence = essences) %>%
+  group_by(essence) %>%
+  mutate(mort = if (!is.null(mods_mort[[unique(essence)]]))
+           predict(mods_mort[[unique(essence)]], newdata = data.frame(age=age))
+         else NA)
 
-# ---- Prédictions ----
-pred$mort_Wacapou <- predict(mod_mort_wac, pred)
-pred$mort_BoisBlanc <- predict(mod_mort_bb, pred)
-
-# ---- Préparer données pour le graphique de mortalité ----
-# ---- Prédictions ----
-mort_plot_pred <- pred %>%
-  pivot_longer(cols = starts_with("mort_"), names_to = "essence", values_to = "mort") %>%
-  mutate(essence = recode(essence,
-                          "mort_Wacapou" = "Bagassa guianensis (Wacapou)",
-                          "mort_BoisBlanc" = "Simarouba amara (Bois blanc)"))
-
-# ---- Obsevations ----
-mort_plot_obs <- Obs %>%
-  select(age, mort_Wacapou, mort_BoisBlanc) %>%
-  pivot_longer(cols = starts_with("mort_"), names_to = "essence", values_to = "mort") %>%
-  mutate(essence = recode(essence,
-                          "mort_Wacapou" = "Bagassa guianensis (Wacapou)",
-                          "mort_BoisBlanc" = "Simarouba amara (Bois blanc)"))
-
-# ---- Graphique mortalité avec points expérimentaux ----
+# ---- Graphique : mortalité ----
 ggplot() +
-  geom_line(data = mort_plot_pred, aes(x = age, y = mort, color = essence), linewidth = 1.3) +
-  geom_point(data = mort_plot_obs, aes(x = age, y = mort, color = essence), size = 3, shape = 16) +
+  geom_line(data = pred_mort, aes(x = age, y = mort, color = essence), linewidth = 1) +
+  geom_point(data = Obs_mort, aes(x = age, y = mort, color = essence), size = 1) +
   theme_minimal() +
   labs(x = "Âge (ans)", y = "Mortalité cumulée (%)", color = "Essence") +
   theme(plot.title = element_text(face = "bold", size = 14))
+
 ```
 
 ## Modèle de production de Bois d'oeuvre
 
 ```{r}
-#| label: fig-vol
-#| fig-cap: Modèles de production de Bois d'oeuvre avec données fictives
-#| echo: false
 
-# ---- Hypothèses sylvicoles ----
-densite_init <- 800       # arbres/ha
-f <- 0.45                 # facteur de forme
+# ---- Fonction de volume ----
+calc_volume <- function(diam){
+  H <- 0.55 * diam + 9   # approximation générale
+  V <- pi * (diam/200)^2 * H * f
+  return(V)
+}
 
-# ---- Obs : Calculs de Volume ----
-Obs <- Obs %>%
+# ---- Volume observations ----
+vol_obs <- Obs_diam %>%
+  left_join(Obs_mort, by = c("age","essence")) %>%
   mutate(
-    H_Wacapou = 0.5 * diam_Wacapou + 10, # Hauteur simulée
-    H_BoisBlanc = 0.6 * diam_BoisBlanc + 8,
-    V_Wacapou = pi * (diam_Wacapou/200)^2 * H_Wacapou * f, # Volume individuel
-    V_BoisBlanc = pi * (diam_BoisBlanc/200)^2 * H_BoisBlanc * f,
-    Nsurv_Wacapou = densite_init * (1 - (mort_Wacapou / 100)), # Survivants
-    Nsurv_BoisBlanc = densite_init * (1 - (mort_BoisBlanc / 100)),
-    Vol_ha_Wacapou = Nsurv_Wacapou * V_Wacapou, # Volume total par hectare (m³/ha)
-    Vol_ha_BoisBlanc = Nsurv_BoisBlanc * V_BoisBlanc
+    V_ind = calc_volume(diam),
+    N_surv = densite_init * (1 - mort/100),
+    Vol_ha = N_surv * V_ind
   )
 
-# ---- Pred : Calculs de Volume ----
-pred <- pred %>%
+# ---- Volume prédictions ----
+vol_pred <- pred_diam %>%
+  left_join(pred_mort, by = c("age","essence")) %>%
   mutate(
-    H_Wacapou = 0.5 * diam_Wacapou + 10, # Hauteur
-    H_BoisBlanc = 0.6 * diam_BoisBlanc + 8,
-    V_Wacapou = pi * (diam_Wacapou/200)^2 * H_Wacapou * f, # Volume individuel
-    V_BoisBlanc = pi * (diam_BoisBlanc/200)^2 * H_BoisBlanc * f,
-    Nsurv_Wacapou = densite_init * (1 - (pred$mort_Wacapou / 100)), # Survivants
-    Nsurv_BoisBlanc = densite_init * (1 - (pred$mort_BoisBlanc / 100)),
-    Vol_ha_Wacapou = Nsurv_Wacapou * V_Wacapou, # Volume total par hectare (m³/ha)
-    Vol_ha_BoisBlanc = Nsurv_BoisBlanc * V_BoisBlanc
+    V_ind = calc_volume(diam),
+    N_surv = densite_init * (1 - mort/100),
+    Vol_ha = N_surv * V_ind
   )
 
-# ---- Préparer données pour le graphique de mortalité ----
-# ---- Observations ----
-vol_plot_obs <- Obs %>%
-  select(age, Vol_ha_Wacapou, Vol_ha_BoisBlanc) %>%
-  pivot_longer(cols = starts_with("Vol_ha"), names_to = "essence", values_to = "volume") %>%
-  mutate(essence = recode(essence,
-                          "Vol_ha_Wacapou" = "Bagassa guianensis (Wacapou)",
-                          "Vol_ha_BoisBlanc" = "Simarouba amara (Bois blanc)"))
-# ---- Prédictions ----
-vol_plot_pred <- pred %>%
-  select(age, Vol_ha_Wacapou, Vol_ha_BoisBlanc) %>%
-  pivot_longer(cols = starts_with("Vol_ha"), names_to = "essence", values_to = "volume") %>%
-  mutate(essence = recode(essence,
-                          "Vol_ha_Wacapou" = "Bagassa guianensis (Wacapou)",
-                          "Vol_ha_BoisBlanc" = "Simarouba amara (Bois blanc)"))
-
-# ---- Graphique comparatif de production ----
+# ---- Graphique : volume ----
 ggplot() +
-  # Courbes simulées
-  geom_line(data = vol_plot_pred, aes(x = age, y = volume, color = essence), linewidth = 1.4) +
-  # Points expérimentaux
-  geom_point(data = vol_plot_obs, aes(x = age, y = volume, color = essence), size = 3, shape = 16) +
+  geom_line(data = vol_pred, aes(x = age, y = Vol_ha, color = essence), linewidth = 1.2) +
+  geom_point(data = vol_obs, aes(x = age, y = Vol_ha, color = essence), size = 1, shape = 16) +
   theme_minimal() +
   labs(x = "Âge (ans)", y = "Volume total (m³/ha)", color = "Essence") +
   theme(plot.title = element_text(face = "bold", size = 14))
-
 
 
 ```
