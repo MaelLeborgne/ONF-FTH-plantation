@@ -400,11 +400,10 @@ et $S$ la surface de la parcelle considérée (en hectares).
 
 # ---- Paramètres sylvicoles ----
 densite_init <- 800 # nombre d'arbre à l'hectare
-f <- 0.45 # facteur de forme
 
 # ---- Fonction de volume individuel ----
 calc_volume <- function(D,H){
-  V <- pi * (D/200)^2 * H * f # volume avec facteur de forme (f=0.45)
+  V <- pi * (D/200)^2 * H # volume du cylindre en m³
   return(V)
 }
 
