@@ -514,6 +514,9 @@ length(unique(df_Nom_Vern$Code_Arbre))
 codes_absents <- setdiff(unique(Inv_complet$Code_Arbre), unique(df_Nom_Vern$Code_Arbre))
 codes_absents
 
+# Dignostic on referenced trees by dates
+table(Inv_complet$Date_Intervention)
+
 ```
 
 ## Modèle de Croissance
@@ -580,7 +583,7 @@ ggplot() +
 
 ```{r}
 #| label: fig-haut-real
-#| fig-cap: Modèles de croissance en hauteur avec données reélles (6 essences, 3 parcelles)
+#| fig-cap: Modèles de croissance en hauteur avec données réelles (6 essences, 3 parcelles)
 #| echo: false
 
 # Retirer les NA dans la colonne Hauteur_Totale
@@ -613,6 +616,7 @@ names(mods_haut) <- unique(Obs_haut$essence)
 # Prediction parameters
 ages_pred <- 0:60
 essence <- unique(Obs_haut$essence)
+
 # ---- Prédictions hauteur ----
 Pred_haut <- expand_grid(age = ages_pred, essence = essence) %>%
   group_by(essence) %>%
@@ -634,6 +638,72 @@ ggplot() +
 
 ```
 
-## Modèle de Mortalité
+## Modèle de Mortalité (TODO : Créer une référence de tout les Arbres plantés à l'état initiale, avec leur Code_Arbre)
+
+```{r}
+#| label: fig-mort-real
+#| fig-cap: Modèles de mortalité avec données réelles (6 essences, 3 parcelles)
+#| echo: false
+
+
+# ---- MORTALITY DATA ----
+
+# ---- Selection des Données de hauteur par essence ----
+Obs_mort <- data.frame(
+  "etat_san" = as.factor(Inv_complet$Circonférence), # as factor
+  "essence" = as.factor(Inv_complet$Nom_Vern), # as factor
+  "age" = Inv_complet$Age_Plantation_annee # converted in year
+)
+
+# Define reference for mortality percentage calculation
+ref_parcelle <- length(unique(Inv_complet$Code_Arbre))
+# Reduct to one point by 'age' and 'essence' by counting death and computing mortality percentage
+Obs_mort_percent <- Obs_mort %>%
+  group_by(age, essence) %>%
+  summarise(
+    mort = (sum(etat_san == 5, na.rm = TRUE) / ref_parcelle) * 100,  # Computing mortality percentage, without NA
+    .groups = "drop"  # Pour éviter de conserver l'information de regroupement
+  )
+# Cumulate mortality percent
+Obs_mort_percent <- Obs_mort_percent %>%
+  group_by(essence) %>%  # Regrouper par essence seulement
+  arrange(essence, age) %>%  # Trier par essence et âge croissant
+  mutate(
+    mort_cumul = cumsum(mort)  # Cumul des pourcentages de mortalité, incluant les âges précédents
+  ) %>%
+  ungroup()  # Désagréger les regroupements
+
+# ---- MODELS ----
+
+# Modèles logistiques par essence
+mods_mort <- Obs_mort_percent %>%
+  group_by(essence) %>%
+  group_map(~ tryCatch({
+    nls(mort_cumul ~ 100 / (1 + exp(-(a + b*age))),
+        data = .x,
+        start = list(a = -5, b = 0.1))
+  }, error = function(e) NULL))
+names(mods_mort) <- unique(Obs_mort$essence)
+
+# Prediction parameters
+ages_pred <- 0:60
+essence <- unique(Obs_mort$essence)
+
+# Prédictions mortalité
+Pred_mort <- expand_grid(age = ages_pred, essence = essence) %>%
+  group_by(essence) %>%
+  mutate(mort_cumul = if (!is.null(mods_mort[[unique(essence)]]))
+           predict(mods_mort[[unique(essence)]], newdata = data.frame(age=age))
+         else NA)
+
+# ---- Graphique : mortalité ----
+ggplot() +
+  geom_line(data = Pred_mort, aes(x = age, y = mort_cumul, color = essence), linewidth = 1) +
+  geom_point(data = Obs_mort_percent, aes(x = age, y = mort_cumul, color = essence), size = 1) +
+  theme_minimal() +
+  labs(x = "Âge (ans)", y = "Mortalité cumulée (%)", color = "Essence") +
+  theme(plot.title = element_text(face = "bold", size = 14))
+
+```
 
 ## Modèle de production de Bois d’œuvre
