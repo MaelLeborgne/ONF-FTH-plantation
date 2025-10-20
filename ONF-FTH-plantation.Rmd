@@ -468,53 +468,22 @@ Un autre point important en sylviculture est l'estimation de la **rotation optim
 #| echo: false
 library(tidyverse)
 
-Inv_complet <- read.csv2("/home/jean/Bureau/projet-ONF-FTH/Data/Thomas_22-09_DB_FTH.csv", sep=";",dec = ".")
+Inv_complet <- read.csv2("/home/jean/Bureau/projet-ONF-FTH/Data/Thomas_17-10_DataPlantations_sansBR.csv", sep=";",dec = ",")
 
 str(Inv_complet)
 
 # Mise en facteurs de cetraines variables
-unique(Inv_complet$Libelle_Plantation)
-#Inv_complet$Libelle_Plantation <- as.factor(Inv_complet$Libelle_Plantation)
+Inv_complet$Code_Essence <- as.factor(Inv_complet$Code_Essence)
 
 # Convertion de Age_Plantation en années
-unique(Inv_complet$Age_Plantation)
 convert_annee <- data.frame(
-  "Age_Plantation" = c("Etat initial","6 mois","1 an","1,5 an","2 ans","3 ans","5 ans","7 ans","36 ans","20 ans","40 ans","15 ans","23 ans","7ans"),
-  "Age_Plantation_annee" = c(0,0.5,1,1.5,2,3,5,7,36,20,40,15,23,7)
+  "Age_Plantation" = unique(Inv_complet$Age_Plantation),
+  "Age_Plantation_annee" = c(35,0,0.5,1,1.5,2,3,5,8,9,14,7,36,46,3.5,4,6,10.5,2.5,0,34,20,40,0.25,15,0.75,0.917,1.083,1.5,10,0.583,23,7,41,13,4.5)
 )
 Inv_complet <- left_join(Inv_complet,convert_annee,by="Age_Plantation")
 
-# Extraction de Nom_Vern et Code_Arbre à partir de TON, RIS et KAW
-# Import
-#TON <- read.csv2("/home/jean/Bureau/projet-ONF-FTH/Data/Maël_22-09_TON78_D_ARBO_inv complet.csv", sep=";",dec = ".")
-KK <- read.csv2("/home/jean/Bureau/projet-ONF-FTH/Data/Nom_Vern&Code_Arbre/TON_2025_invKK_exp.csv", sep=",",dec = ".") %>% select(Nom_Vern,Code)
-WK <- read.csv2("/home/jean/Bureau/projet-ONF-FTH/Data/Nom_Vern&Code_Arbre/TON_2025_invWK_exp.csv", sep=",",dec = ".") %>% select(Nom_Vern,Code)
-GK <- read.csv2("/home/jean/Bureau/projet-ONF-FTH/Data/Nom_Vern&Code_Arbre/TON_2025_invGK_exp.csv", sep=",",dec = ".") %>% select(Nom_Vern,Code)
-TON <- rbind(KK,WK) %>% rbind(GK)
+# Correction des diametres à 130cm
 
-RIS <- read.csv2("/home/jean/Bureau/projet-ONF-FTH/Data/Maël_07-10_RIS78_D_inventaire_complet.csv", sep=";",dec = ".")
-KAW <- read.csv2("/home/jean/Bureau/projet-ONF-FTH/Data/Maël_22-09_KAW03-D_Inventaire complet.csv", sep=";")
-# Extract
-TON <- TON %>% select(Nom_Vern,Code)
-RIS <- RIS %>% select(Nom_Vern,Code)
-KAW <- KAW %>% select(Nom_Vern,Code)
-# Bind
-df_Nom_Vern <- rbind(TON,RIS) %>% rbind(KAW)
-
-# Ajout de Nom_Vern à Inv_complet
-df_Nom_Vern <- df_Nom_Vern %>% rename(Code_Arbre="Code") # homogenise column name
-Inv_complet <- left_join(Inv_complet,df_Nom_Vern,by="Code_Arbre")
-
-# Verfify if all Code_Arbre is indentify by Nom_Vern
-table(df_Nom_Vern$Nom_Vern)
-table(Inv_complet$Nom_Vern)
-length(unique(Inv_complet$Code_Arbre))
-length(unique(df_Nom_Vern$Code_Arbre))
-codes_absents <- setdiff(unique(Inv_complet$Code_Arbre), unique(df_Nom_Vern$Code_Arbre))
-codes_absents
-
-# Dignostic on referenced trees by dates
-table(Inv_complet$Date_Intervention)
 
 ```
 
@@ -526,15 +495,11 @@ table(Inv_complet$Date_Intervention)
 #| echo: false
 
 # Retirer les NA dans les colonnes Nom_Vern et Circonférence
-# Inv_complet <- Inv_complet[!is.na(Inv_complet$Nom_Vern), ]
 Inv_complet <- Inv_complet[!is.na(Inv_complet$Circonférence), ]
-
-# Remplacer les virgules par des points dans la colonne Circonférence
-Inv_complet$Circonférence <- gsub(",", ".", Inv_complet$Circonférence)
 
 # ---- Selection des Données de diamètres par essence ----
 Obs_diam <- data.frame(
-  "diam" = as.numeric(Inv_complet$Circonférence)/pi, # as num divided by pi
+  "diam" = Inv_complet$Circonférence/pi, # as num divided by pi
   "essence" = as.factor(Inv_complet$Nom_Vern), # as factor
   "age" = Inv_complet$Age_Plantation_annee # converted in year
 )
@@ -576,6 +541,8 @@ ggplot() +
     breaks = seq(0, max(Obs_diam$diam, na.rm = TRUE), by = 10),  # Espacement des étiquettes sur l'axe Y
     labels = scales::comma  # Option pour ajouter des séparateurs de milliers
   ) +
+  #xlim(0, 60) +
+  #ylim(0, 100) +
   theme(plot.title = element_text(face = "bold", size = 14)) 
 
 ```
