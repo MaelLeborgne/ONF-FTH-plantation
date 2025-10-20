@@ -481,6 +481,11 @@ convert_annee <- data.frame(
 Inv_complet <- left_join(Inv_complet,convert_annee,by="Age_Plantation")
 
 # Correction des diametres à 130cm
+Inv_complet <- Inv_complet |>
+  mutate(DBH = Circonférence) |>
+  mutate(POM = Ht_Mesure) |>
+  mutate(Taper_parameter = 0.156 - 0.023*log(DBH) - 0.021*log(POM/100)) |>
+  mutate(DBHCorr = DBH/(exp(- Taper_parameter*((POM-130)/100))))
 
 # Verification of variables types 
 str(Inv_complet)
@@ -497,11 +502,11 @@ str(Inv_complet)
 #| echo: false
 
 # Retirer les NA dans les colonnes Nom_Vern et Circonférence
-Inv_complet <- Inv_complet[!is.na(Inv_complet$Circonférence), ]
+Inv_complet <- Inv_complet[!is.na(Inv_complet$DBHCorr), ]
 
 # ---- Selection des Données de diamètres par essence ----
 Obs_diam <- data.frame(
-  "diam" = Inv_complet$Circonférence/pi, # as num divided by pi
+  "diam" = Inv_complet$DBHCorr/pi, # as num divided by pi
   "essence" = as.factor(Inv_complet$Nom_Vern), # as factor
   "age" = Inv_complet$Age_Plantation_annee # converted in year
 )
@@ -575,7 +580,7 @@ Inv_complet <- Inv_complet[!is.na(Inv_complet$Hauteur_Totale), ]
 
 # ---- Selection des Données de hauteur par essence ----
 Obs_haut <- data.frame(
-  "haut" = as.numeric(Inv_complet$Circonférence), # as num
+  "haut" = as.numeric(Inv_complet$Hauteur_Totale), # as num
   "essence" = as.factor(Inv_complet$Nom_Vern), # as factor
   "age" = Inv_complet$Age_Plantation_annee # converted in year
 )
