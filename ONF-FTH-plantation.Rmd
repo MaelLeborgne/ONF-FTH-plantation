@@ -413,7 +413,7 @@ vol_obs <- left_join(Obs_diam,Obs_haut,by=c("age","essence")) %>%
   mutate(
     V_ind = calc_volume(diam,haut),
     N_surv = densite_init * (1 - mort/100), # denstié = 800 (set in the begining)
-    Vol_ha = N_surv * V_ind # volume par hectare (avec surface de parcelle = 1ha)
+    Vol_ha = N_surv * V_ind                 # volume par hectare (avec surface de parcelle = 1ha)
   )
 
 # ---- Volume prédictions ----
@@ -473,22 +473,51 @@ Inv_complet <- read.csv2("/home/jean/Bureau/projet-ONF-FTH/Data/Thomas_17-10_Dat
 # Mise en facteurs de cetraines variables
 Inv_complet$Code_Essence <- as.factor(Inv_complet$Code_Essence)
 
-# Convertion de Age_Plantation en années
+# ---- Convertion de Age_Plantation en années ----
 convert_annee <- data.frame(
   "Age_Plantation" = unique(Inv_complet$Age_Plantation),
   "Age_Plantation_annee" = c(35,0,0.5,1,1.5,2,3,5,8,9,14,7,36,46,3.5,4,6,10.5,2.5,0,34,20,40,0.25,15,0.75,0.917,1.083,1.5,10,0.583,23,7,41,13,4.5)
 )
 Inv_complet <- left_join(Inv_complet,convert_annee,by="Age_Plantation")
 
-# Correction des diametres à 130cm
+# ---- Retirer les NA dans les colonnes Nom_Vern et Circonférence ----
+Inv_complet <- Inv_complet[!is.na(Inv_complet$DBHCorr), ]
+
+# ---- Set Ht_mesure at 130 for those are set at 0 ----
+Inv_complet <- Inv_complet %>%
+  mutate(Ht_Mesure = ifelse(Ht_Mesure == 0, 130, Ht_Mesure))
+
+# ---- Correction des diametres à 130cm ----
 Inv_complet <- Inv_complet |>
   mutate(DBH = Circonférence) |>
   mutate(POM = Ht_Mesure) |>
   mutate(Taper_parameter = 0.156 - 0.023*log(DBH) - 0.021*log(POM/100)) |>
   mutate(DBHCorr = DBH/(exp(- Taper_parameter*((POM-130)/100))))
 
-# Verification of variables types 
+# ---- Adding initial diameter and high for all trees ----
+all_trees_code <- unique(Inv_complet$Code_Arbre)     # All trees
+Initial_state <- data.frame(                         # Inisialized
+  "Code_Arbre" = all_trees_code,
+  "Age_Plantation_annee" = rep(0,length(all_trees_code)),
+  "DBHCorr" = rep(0,length(all_trees_code)),
+  "Hauteur_Totale" = rep(0,length(all_trees_code))
+)
+# Make correspondance with Code_Essence, Nom_Vernaculaire, Famille, Genre, Espece
+ref_code_espece <- Inv_complet %>% distinct(Code_Arbre, .keep_all = TRUE)                                      # first make a reference
+ref_code_espece <- ref_code_espece |> select("Code_Arbre", "Nom_Vernaculaire", "Famille", "Genre", "Espece") # then select rows of interest
+Initial_state   <-  left_join(Initial_state, ref_code_espece, by="Code_Arbre")                               # Make the correspondance for each Code_Arbre
+
+# Finally Bind Initial_state to Inv_complet
+Inv_complet <- bind_rows(Inv_complet,Initial_state)  
+
+# ---- Verification of variables types ----
 str(Inv_complet)
+
+# ---- Methods to fix NA bug models ----
+# ---- pin caraibes ----
+# Inv_complet <- Inv_complet[Inv_complet$Nom_Vernaculaire == "pin caraibes", ]
+# view <- Inv_complet[Inv_complet$Age_Plantation_annee == 46, ]
+# head(view)
 
 ```
 
@@ -500,9 +529,6 @@ str(Inv_complet)
 #| label: fig-diam-real
 #| fig-cap: Modèles de croissance en diamètre avec données réelles (29 essences)
 #| echo: false
-
-# Retirer les NA dans les colonnes Nom_Vern et Circonférence
-Inv_complet <- Inv_complet[!is.na(Inv_complet$DBHCorr), ]
 
 # ---- Selection des Données de diamètres par essence ----
 Obs_diam <- data.frame(
@@ -699,13 +725,8 @@ ggplot() +
 
 # TODO :
 
-1.  Créer des données à T=0 pour l'initialisation des models
+1.  Fix NA models
 
-2.  Correction Diamètre à 130cm
+2.  Modify volume model without mortality model (sum of volumes)
 
-3.  Question : Modéliser pour chaque arbre et moyenner les coef ?
-    ou modéliser la moyenne des arbres ?
-
-4.  Modifier le modèle de volume sans prendre en compte le modèle de mortalité (somme des volumes)
-
-5.  Tout traduire en Anglais
+3.  Tout traduire en Anglais
