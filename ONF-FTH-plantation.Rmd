@@ -480,19 +480,25 @@ convert_annee <- data.frame(
 )
 Inv_complet <- left_join(Inv_complet,convert_annee,by="Age_Plantation")
 
-# ---- Retirer les NA dans les colonnes Nom_Vern et Circonférence ----
-Inv_complet <- Inv_complet[!is.na(Inv_complet$DBHCorr), ]
-
 # ---- Set Ht_mesure at 130 for those are set at 0 ----
 Inv_complet <- Inv_complet %>%
   mutate(Ht_Mesure = ifelse(Ht_Mesure == 0, 130, Ht_Mesure))
 
 # ---- Correction des diametres à 130cm ----
 Inv_complet <- Inv_complet |>
-  mutate(DBH = Circonférence) |>
+  mutate(DBH = round(Circonférence/pi),digits=2) |>
   mutate(POM = Ht_Mesure) |>
   mutate(Taper_parameter = 0.156 - 0.023*log(DBH) - 0.021*log(POM/100)) |>
   mutate(DBHCorr = DBH/(exp(- Taper_parameter*((POM-130)/100))))
+
+# ---- DBHCorr = 0 if DBH = 0 ----
+Inv_complet <- Inv_complet %>%
+  mutate(DBHCorr = ifelse(DBH == 0, 0, DBHCorr))
+
+# ---- Removing dead trees for growth models ----
+Inv_complet <- Inv_complet[Inv_complet$Etat_Sanitaire == 1, ]
+# Inv_complet <- Inv_complet[Inv_complet$Etat_Sanitaire != 5, ]
+# Inv_complet <- Inv_complet[Inv_complet$Etat_Sanitaire != 6, ]
 
 # ---- Adding initial diameter and high for all trees ----
 all_trees_code <- unique(Inv_complet$Code_Arbre)     # All trees
@@ -513,11 +519,6 @@ Inv_complet <- bind_rows(Inv_complet,Initial_state)
 # ---- Verification of variables types ----
 str(Inv_complet)
 
-# ---- Methods to fix NA bug models ----
-# ---- pin caraibes ----
-# Inv_complet <- Inv_complet[Inv_complet$Nom_Vernaculaire == "pin caraibes", ]
-# view <- Inv_complet[Inv_complet$Age_Plantation_annee == 46, ]
-# head(view)
 
 ```
 
@@ -532,12 +533,12 @@ str(Inv_complet)
 
 # ---- Selection des Données de diamètres par essence ----
 Obs_diam <- data.frame(
-  "diam" = Inv_complet$DBHCorr/pi, # as num divided by pi
+  "diam" = Inv_complet$DBHCorr,
   "essence" = as.factor(Inv_complet$Nom_Vern), # as factor
   "age" = Inv_complet$Age_Plantation_annee # converted in year
 )
 
-# Réduire à un seul point par 'age' et 'essence' en moyennant les duplicats
+# ---- Moyenner les duplicats par age sur chaque essence ----
 Obs_diam_averaged <- Obs_diam %>%
   group_by(age, essence) %>%
   summarise(
@@ -545,35 +546,26 @@ Obs_diam_averaged <- Obs_diam %>%
     .groups = "drop"  # Pour éviter de conserver l'information de regroupement
   )
 
-# # Modèles Chapman-Richards par essence
-# mods_diam <- Obs_diam_averaged %>%
-#   group_by(essence) %>%
-#   group_map(~ tryCatch(
-#     nls(diam_mean ~ A*(1 - exp(-k*age))^m, data = .x, start = list(A=40,k=0.06,m=1.3)),
-#     error = function(e) NULL
-#   ))
-# names(mods_diam) <- unique(Obs_diam$essence)
-
-# Modèles Michaelis-Menten par essence
+# ---- Modèles Michaelis-Menten par essence ----
 mods_diam <- Obs_diam_averaged %>%
   group_by(essence) %>%
   group_map(~ tryCatch(
-    nls(diam_mean ~ (V_max * age) / (K_m + age), data = .x, start = list(V_max = 40, K_m = 0.06)),
+    nls(diam_mean ~ (V_max * age) / (K_m + age), data = .x, start = list(V_max = 10, K_m = 0.06),
+        nls.control( maxiter = 500, tol = 1e-5, minFactor = 1e-8)),
     error = function(e) NULL
   ))
-names(mods_diam) <- unique(Obs_diam_averaged$essence)
+names(mods_diam) <- unique(Obs_diam$essence)
 
-
-ages_pred <- 0:60
-essence <- unique(Obs_diam$essence)
-# Prédictions diamètre
-Pred_diam <- expand_grid(age = ages_pred, essence = essence) %>%
+# ---- Prédictions diamètre ----
+ages_pred <- 0:60                     # vector of ages
+essence <- unique(Obs_diam$essence)   # vector of trees
+Pred_diam <- expand_grid(age = ages_pred, essence = essence) %>%  # dataframe of diam predicted
   group_by(essence) %>%
   mutate(diam = if (!is.null(mods_diam[[unique(essence)]]))
            predict(mods_diam[[unique(essence)]], newdata = data.frame(age=age))
          else NA)
 
-# ---- Graphique : diamètre ----
+# ---- Graphique of data + prediction ----
 ggplot() +
   geom_line(data = Pred_diam, aes(x = age, y = diam, color = essence), linewidth = 1) +
   geom_point(data = Obs_diam_averaged, aes(x = age, y = diam_mean, color = essence), size = 1) +
@@ -584,13 +576,95 @@ ggplot() +
     labels = scales::comma  # Option pour ajouter des séparateurs de milliers
   ) +
   xlim(0, 60) +
-  ylim(0, 30) +
+  ylim(0, 60) +
   theme(plot.title = element_text(face = "bold", size = 14)) 
 
-# # look on Obesrvation points
-# table(Obs_diam_averaged)
-# # ckeck data on one tree specie
-# Obs_diam_averaged[Obs_diam_averaged$essence=="gonfolo kwali",]
+
+```
+
+### Test model diamètre par arbre
+
+```{r}
+#| label: fig-diam-debug
+#| fig-cap: Debuging figure for diamater model
+#| echo: false
+
+# ---- Simplify data to fix NA models bugs ----
+Inv_select <- Inv_complet[Inv_complet$Nom_Vernaculaire == "angelique", ]
+#Inv_select <- Inv_complet[Inv_complet$Code_Arbre=="MDF01_A_1_1_387",]
+
+# ---- List of NA bug models ----
+# mods_diam[sapply(mods_diam, is.null)]
+# ---- alimiao ----
+# BUG : all DBH are 0
+# ---- angelique ----
+# BUG : to much 0 at begining
+# ---- pin caraibes ----
+# BUG : model don't fit with initial state
+# ---- bois grage ----
+# BUG: at 23 Circonf 0 -> remove data
+# ---- cedre sam ----
+# BUG : to much 0 at begining
+# ---- cœur dehors ----
+# BUG : to much 0 at begining
+# ---- copaya ----
+# ---- courbaril ----
+
+# ---- Check number of trees mesear at each time ---
+# age_table <- Inv_complet %>%
+#   group_by(Nom_Vernaculaire, Age_Plantation_annee) %>%
+#   summarise(count = n(), .groups = 'drop')
+
+# ---- Selection des Données de diamètres par essence ----
+Obs_diam <- data.frame(
+  "diam" = Inv_select$DBHCorr,
+  "arbre" = as.factor(Inv_select$Code_Arbre), # as factor
+  "age" = Inv_select$Age_Plantation_annee # converted in year
+)
+
+# ---- Modèles Michaelis-Menten par essence ----
+mods_diam <- Obs_diam %>%
+  group_by(arbre) %>%
+  group_map(~ tryCatch(
+    nls(diam ~ (V_max * age) / (K_m + age), data = .x, start = list(V_max = 40, K_m = 0.06),
+        nls.control( maxiter = 500, tol = 1e-5, minFactor = 1e-8)),
+    error = function(e) NULL
+  ))
+names(mods_diam) <- unique(Obs_diam$arbre)
+
+# ---- Prédictions diamètre ----
+ages_pred <- 0:60                 # vector of ages
+arbre <- unique(Obs_diam$arbre)   # vector of trees
+Pred_diam <- expand_grid(age = ages_pred, arbre = arbre) %>%  # dataframe of diam predicted
+  group_by(arbre) %>%
+  mutate(diam = if (!is.null(mods_diam[[unique(arbre)]]))
+           predict(mods_diam[[unique(arbre)]], newdata = data.frame(age=age))
+         else NA)
+
+# ---- Graphique of data + prediction ----
+ggplot() +
+  geom_line(data = Pred_diam, aes(x = age, y = diam, color = arbre), linewidth = 1) +
+  geom_point(data = Obs_diam, aes(x = age, y = diam, color = arbre), size = 1) +
+  theme_minimal() +
+  labs(x = "Âge (ans)", y = "Diamètre (cm)") +
+  scale_y_continuous(
+    breaks = seq(0, max(Obs_diam$diam, na.rm = TRUE), by = 10),  # Espacement des étiquettes sur l'axe Y
+    labels = scales::comma  # Option pour ajouter des séparateurs de milliers
+  )+
+  guides(color = "none")
+
+# # ---- Modèle moyen ---- (not already tested)
+# library(nlme)
+# 
+# # modèle mixte non-linéaire
+# mod_moyen <- nlme(
+#   diam ~ (V_max * age) / (K_m + age),
+#   data = Obs_diam,
+#   fixed = V_max + K_m ~ 1,              # effets fixes (moyenne globale)
+#   random = V_max + K_m ~ 1 | arbre_id,  # effets aléatoires par arbre
+#   start = c(V_max = 40, K_m = 5)        # à ajuster
+# )
+# summary(mod_moyen)
 
 ```
 
@@ -727,6 +801,10 @@ ggplot() +
 
 1.  Fix NA models
 
-2.  Modify volume model without mortality model (sum of volumes)
+2.  Moove /pi in DBH in import data
 
-3.  Tout traduire en Anglais
+3.  Add data from 2025
+
+4.  Modify volume model without mortality model (sum of volumes)
+
+5.  Tout traduire en Anglais
