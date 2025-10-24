@@ -243,24 +243,27 @@ str(Inv_complet)
 
 ```
 
-## Modèle de Croissance
+## Modèle de croissance et d'accroissement
 
 Un **modèle de croissance forestier** est un outil mathématique qui permet de prédire l’évolution d’un arbre ou d’un peuplement au cours du temps (source).
 On peut donc estimer l'évolution de la croissance en diamètre, en hauteur, ou en volume du bois à partir de **mesures dendrométriques**, de **variables écologiques** et du **scénario de gestion**.
 
-**Modèle de Chapman-Richards :**
+**Modèle de** **Michaelis-Menten :**
 
 $$
-Y=A*(1-e^{-kX})^m
+Y=\frac{Y_{max}*t}{K_m+t}
 $$
 
-Y : Diamètre, X : âge, (A,k,m) = paramètres à estimer (asymptote, vitesse, forme)
+$Y$ : La variable de croissance à modéliser (Diamètre ou Hauteur), \
+$t$ : âge des arbres en année,\
+$Y_{max}$ : Valeur maximal théorique de Y (à estimer),\
+$K_m$ : constante de Michaelis (à estimer).
 
-### Diamètre (Michaelis-Menten)
+### Accroissement en Diamètre
 
 ```{r}
 #| label: fig-diam-real
-#| fig-cap: Modèles de croissance en diamètre avec données réelles (29 essences)
+#| fig-cap: Modèles de croissance en diamètre avec données réelles (23 essences)
 #| echo: false
 
 # ---- Selection des Données de diamètres par essence ----
@@ -297,7 +300,7 @@ Pred_diam <- expand_grid(age = ages_pred, essence = essence) %>%  # dataframe of
            predict(mods_diam[[unique(essence)]], newdata = data.frame(age=age))
          else NA)
 
-# ---- Graphique of data + prediction ----
+# ---- Graphique of data + prediction : diameter ----
 ggplot() +
   geom_line(data = Pred_diam, aes(x = age, y = diam, color = essence), linewidth = 1) +
   geom_point(data = Obs_diam_averaged, aes(x = age, y = diam_mean, color = essence), size = 1) +
@@ -314,14 +317,14 @@ ggplot() +
 
 ```
 
-### Hauteur (Chapman-Richards)
+### Croissance en hauteur
 
 ```{r}
 #| label: fig-haut-real
-#| fig-cap: Modèles de croissance en hauteur avec données réelles (29 essences)
+#| fig-cap: Modèles de croissance en hauteur avec données réelles (23 essences)
 #| echo: false
 
-# Retirer les NA dans la colonne Hauteur_Totale
+# ---- Retirer les NA dans la colonne Hauteur_Totale ----
 Inv_complet <- Inv_complet[!is.na(Inv_complet$Hauteur_Totale), ]
 
 # ---- Selection des Données de hauteur par essence ----
@@ -331,11 +334,11 @@ Obs_haut <- data.frame(
   "age" = Inv_complet$Age_Plantation_annee # converted in year
 )
 
-# Reduction to one point by 'age' and 'essence' by averaging duplicats
+# ---- Moyenner les duplicats par age sur chaque essence ----
 Obs_haut_averaged <- Obs_haut %>%
   group_by(age, essence) %>%
   summarise(
-    haut = mean(haut, na.rm = TRUE),  # Mean of diameters
+    haut_mean = mean(haut, na.rm = TRUE),  # Mean of diameters
     .groups = "drop"  # Pour éviter de conserver l'information de regroupement
   )
 
@@ -343,26 +346,24 @@ Obs_haut_averaged <- Obs_haut %>%
 mods_haut <- Obs_haut_averaged %>%
   group_by(essence) %>%
   group_map(~ tryCatch(
-    nls(haut ~ A*(1 - exp(-k*age))^m, data = .x, start = list(A=22,k=0.05,m=1.2)),
+    nls(haut_mean ~ (V_max * age) / (K_m + age), data = .x, start = list(A=22,k=0.05,m=1.2)),
     error = function(e) NULL
   ))
 names(mods_haut) <- unique(Obs_haut$essence)
 
-# Prediction parameters
-ages_pred <- 0:60
-essence <- unique(Obs_haut$essence)
-
 # ---- Prédictions hauteur ----
-Pred_haut <- expand_grid(age = ages_pred, essence = essence) %>%
+ages_pred <- 0:60                       # vector of ages
+essence <- unique(Obs_haut$essence)     # vector of trees
+Pred_haut <- expand_grid(age = ages_pred, essence = essence) %>%      # dataframe of haut predicted
   group_by(essence) %>%
-  mutate(haut = if (!is.null(mods_haut[[unique(essence)]]))
+  mutate(haut_mean = if (!is.null(mods_haut[[unique(essence)]]))
            predict(mods_haut[[unique(essence)]], newdata = data.frame(age=age))
          else NA)
 
-# ---- Graphique : Hauteur ----
+# ---- Graphique of data + prediction : total high ----
 ggplot() +
-  geom_line(data = Pred_haut, aes(x = age, y = haut, color = essence), linewidth = 1) +
-  geom_point(data = Obs_haut_averaged, aes(x = age, y = haut, color = essence), size = 1) +
+  geom_point(data = Obs_haut_averaged, aes(x = age, y = haut_mean, color = essence), size = 1) +
+  geom_line(data = Pred_haut, aes(x = age, y = haut_mean, color = essence), linewidth = 1) +
   theme_minimal() +
   labs(
     x = "Âge (ans)",
@@ -433,16 +434,14 @@ Un autre point important en sylviculture est l'estimation de la **rotation optim
 
 # TODO :
 
-1.  Remove fictive data part and mortality model
+1.  Explication of mickaelis menten model, application for high o trees
 
-2.  Explication of mickaelis menten model, application for high o trees
+2.  Simplify volume model (sum of individual volumes)
 
-3.  Simplify volume model (sum of individual volumes)
+3.  Séparer les densité de tige et les surfaces selon les parcelles.
 
-4.  Séparer les densité de tige et les surfaces selon les parcelles.
+4.  Add data from 2025
 
-5.  Add data from 2025
+5.  Change nls() to brms()
 
-6.  Change nls() to brms()
-
-7.  Tout traduire en Anglais
+6.  Tout traduire en Anglais
