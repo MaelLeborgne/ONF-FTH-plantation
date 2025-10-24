@@ -183,285 +183,6 @@ L'édition d'un nouvel article est motivé par la nécessité de mettre à jour 
 
 # Matériel et méthode {#markdown}
 
-# Modèles sur données fictives
-
-```{r}
-#| echo: false
-
-# ---- Initialisation du Programme ----
-
-library(tidyverse)
-library(ggplot2)
-
-set.seed(123)
-
-# ---- Paramètres sylvicoles ----
-essences <- paste0("Essence", 1:10)
-ages_obs <- c(5,10,20,30,40,50)
-ages_pred <- 0:100
-
-```
-
-## Modèle de Croissance
-
-Un **modèle de croissance forestier** est un outil mathématique qui permet de prédire l’évolution d’un arbre ou d’un peuplement au cours du temps (source).
-On peut donc estimer l'évolution de la croissance en diamètre, en hauteur, ou en volume du bois à partir de **mesures dendrométriques**, de **variables écologiques** et du **scénario de gestion**.
-
-**Modèle de Chapman-Richards :**
-
-$$
-Y=A*(1-e^{-kX})^m
-$$
-
-Y : Diamètre, X : âge, (A,k,m) = paramètres à estimer (asymptote, vitesse, forme)
-
-**Exemples avec données fictives :**
-
-```{r}
-#| label: fig-diam-fictive
-#| fig-cap: Modèles de croissance en diamètre avec données fictives (10 essences)
-#| echo: false
-
-# ---- Données fictives : diamètre ----
-Obs_diam <- expand_grid(age = ages_obs, essence = essences) %>%
-  mutate(
-    A = runif(n(), 35, 42),
-    k = runif(n(), 0.05, 0.07),
-    m = runif(n(), 1.2, 1.4),
-    diam = A * (1 - exp(-k * age))^m + rnorm(n(), 0, 0.8)
-  )
-
-# Modèles Chapman-Richards par essence
-mods_diam <- Obs_diam %>%
-  group_by(essence) %>%
-  group_map(~ tryCatch(
-    nls(diam ~ A*(1 - exp(-k*age))^m, data = .x, start = list(A=40,k=0.06,m=1.3)),
-    error = function(e) NULL
-  ))
-names(mods_diam) <- essences
-
-# Prédictions diamètre
-Pred_diam <- expand_grid(age = ages_pred, essence = essences) %>%
-  group_by(essence) %>%
-  mutate(diam = if (!is.null(mods_diam[[unique(essence)]]))
-           predict(mods_diam[[unique(essence)]], newdata = data.frame(age=age))
-         else NA)
-
-# ---- Graphique : diamètre ----
-ggplot() +
-  geom_line(data = Pred_diam, aes(x = age, y = diam, color = essence), linewidth = 1) +
-  geom_point(data = Obs_diam, aes(x = age, y = diam, color = essence), size = 1) +
-  theme_minimal() +
-  labs(x = "Âge (ans)", y = "Diamètre (cm)", color = "Essence") +
-  theme(plot.title = element_text(face = "bold", size = 14))
-
-
-```
-
-```{r}
-#| label: fig-haut-fictive
-#| fig-cap: Modèles de croissance en hauteur avec données fictives (10 essences)
-#| echo: false
-
-# ---- Données fictives : hauteur ----
-Obs_haut <- expand_grid(age = ages_obs, essence = essences) %>%
-  mutate(
-    A = runif(n(), 20, 35),       # hauteur asymptotique (m)
-    k = runif(n(), 0.03, 0.08),   # taux de croissance
-    m = runif(n(), 1, 1.5),     # forme de la courbe
-    haut = A * (1 - exp(-k * age))^m + rnorm(n(), 0, 0.2) # bruit réaliste
-  )
-
-# ---- Modèles Chapman-Richards par essence ----
-mods_haut <- Obs_haut %>%
-  group_by(essence) %>%
-  group_map(~ tryCatch(
-    nls(haut ~ A*(1 - exp(-k*age))^m, data = .x, start = list(A=22,k=0.05,m=1.2)),
-    error = function(e) NULL
-  ))
-names(mods_haut) <- essences
-
-# ---- Prédictions hauteur ----
-Pred_haut <- expand_grid(age = ages_pred, essence = essences) %>%
-  group_by(essence) %>%
-  mutate(haut = if (!is.null(mods_haut[[unique(essence)]]))
-           predict(mods_haut[[unique(essence)]], newdata = data.frame(age=age))
-         else NA)
-
-# ---- Graphique : hauteur ----
-ggplot() +
-  geom_line(data = Pred_haut, aes(x = age, y = haut, color = essence), linewidth = 1) +
-  geom_point(data = Obs_haut, aes(x = age, y = haut, color = essence), size = 1) +
-  theme_minimal() +
-  labs(
-    x = "Âge (ans)",
-    y = "Hauteur (m)",
-    color = "Essence"
-  ) +
-  theme(plot.title = element_text(face = "bold", size = 14))
-
-```
-
-## Modèle de Mortalité
-
-Un modèle de mortalité est un outil mathématique qui prédit la probabilité qu’un arbre meure au cours d’une période donnée (source).
-Il peut prendre en compte :
-
--   la **taille de l’arbre** (les petits meurent plus souvent par compétition),
-
--   la **densité du peuplement** (stress dû à la concurrence),
-
--   les **conditions écologiques** (sécheresse, inondation, sols pauvres, etc.),
-
--   les **caractéristiques propres à l’essence** (tolérance à l’ombre, longévité, résistance aux maladies).
-
-Ici on ne peut que prendre en compte la taille de l'arbre, voir les extrêmes de pluviométrie annuelle (haut, bas).
-(autre idée ?)
-
-**Modèle logistique :**
-
-$$
-Y=\frac{A}{1+Be^{-kX}}
-$$
-
-Y : Taux de mortalité, X : Âge, (A,B,k,m) = paramètres à estimer (asymptote, vitesse, forme)
-
-**Exemple avec données fictives :**
-
-```{r}
-#| label: fig-mort-fictive
-#| fig-cap: Modèles de mortalité avec données fictives (10 essences)
-#| echo: false
-
-# ---- Données fictives : mortalité ----
-Obs_mort <- expand_grid(age = ages_obs, essence = essences) %>%
-  mutate(
-    a = runif(n(), -6, -3),
-    b = runif(n(), 0.05, 0.15),
-    mort = 100 / (1 + exp(-(a + b*age)))
-  ) %>%
-  select(age, essence, mort)
-
-# Modèles logistiques par essence
-mods_mort <- Obs_mort %>%
-  group_by(essence) %>%
-  group_map(~ tryCatch({
-    nls(mort ~ 100 / (1 + exp(-(a + b*age))),
-        data = .x,
-        start = list(a = -5, b = 0.1))
-  }, error = function(e) NULL))
-names(mods_mort) <- essences
-
-# Prédictions mortalité
-Pred_mort <- expand_grid(age = ages_pred, essence = essences) %>%
-  group_by(essence) %>%
-  mutate(mort = if (!is.null(mods_mort[[unique(essence)]]))
-           predict(mods_mort[[unique(essence)]], newdata = data.frame(age=age))
-         else NA)
-
-# ---- Graphique : mortalité ----
-ggplot() +
-  geom_line(data = Pred_mort, aes(x = age, y = mort, color = essence), linewidth = 1) +
-  geom_point(data = Obs_mort, aes(x = age, y = mort, color = essence), size = 1) +
-  theme_minimal() +
-  labs(x = "Âge (ans)", y = "Mortalité cumulée (%)", color = "Essence") +
-  theme(plot.title = element_text(face = "bold", size = 14))
-
-```
-
-## Modèle de production de Bois d’œuvre
-
-La combinaison du modèle de croissance et du modèle de mortalité permet d'obtenir un modèle de production volumique.
-
-Soit le volume individuel d'un arbre :
-
-$$
-V_{ind}=\pi*(\frac{D_{130}}{2})²*H_{tot}*f
-$$
-
-Avec $D_{130}$ le diamètre du tronc en mètre à 130 cm,\
-$H_{tot}$ la hauteur totale de l'arbre,\
-et $f$ le facteur de forme.
-
-On concidère le volume de bois produit par hectare (en m³/ha):
-
-$$
-V_{ha}=\frac{N_{surv}*V_{ind}}{S}
-$$
-
-Avec $V_{ind}$ le volume individuel moyen d'un arbre (en m³),\
-$N_{surv}$ le nombre de survivant sur la parcelle,\
-et $S$ la surface de la parcelle considérée (en hectares).
-
-```{r}
-#| label: fig-prod-fictive
-#| fig-cap: Modèles de production de Bois d'oeuvre avec données fictives (10 essences)
-#| echo: false
-
-# ---- Paramètres sylvicoles ----
-densite_init <- 800 # nombre d'arbre à l'hectare
-
-# ---- Fonction de volume individuel ----
-calc_volume <- function(D,H){
-  V <- pi * (D/200)^2 * H # volume du cylindre en m³
-  return(V)
-}
-
-# ---- Volume observations ----
-vol_obs <- left_join(Obs_diam,Obs_haut,by=c("age","essence")) %>%
-  left_join(Obs_mort, by = c("age","essence")) %>%
-  mutate(
-    V_ind = calc_volume(diam,haut),
-    N_surv = densite_init * (1 - mort/100), # denstié = 800 (set in the begining)
-    Vol_ha = N_surv * V_ind                 # volume par hectare (avec surface de parcelle = 1ha)
-  )
-
-# ---- Volume prédictions ----
-vol_pred <- left_join(Pred_diam,Pred_haut,by=c("age","essence")) %>%
-  left_join(Pred_mort, by = c("age","essence")) %>%
-  mutate(
-    V_ind = calc_volume(diam,haut),
-    N_surv = densite_init * (1 - mort/100),
-    Vol_ha = N_surv * V_ind # volume par hectare (avec surface de parcelle = 1ha)
-  )
-
-# ---- Graphique : volume ----
-ggplot() +
-  geom_line(data = vol_pred, aes(x = age, y = Vol_ha, color = essence), linewidth = 1) +
-  geom_point(data = vol_obs, aes(x = age, y = Vol_ha, color = essence), size = 1, shape = 16) +
-  theme_minimal() +
-  labs(x = "Âge (ans)", y = "Volume total (m³/ha)", color = "Essence") +
-  theme(plot.title = element_text(face = "bold", size = 14))
-
-
-```
-
-Un autre point important en sylviculture est l'estimation de la **rotation optimale**, c'est à dire l'âge idéal de coupe pour maximiser la valeur du Bois.
-
-**Tâche pour avancer dans les résultats :**
-
--   Séparer les facteurs de forme selon l’espèce.
-
--   Séparer les densité de tige et les surfaces selon les parcelles.
-
-**Questions pour Thomas :**
-
--   Comment calcule-t-on le volume de bois exploitable ? 
-
-    -   Facteurs de forme ? Prise en compte des fourches ?
-
--   Comment obtenir la rotation optimale ? 
-
-    -   Quand la dérivé du modèle vaut zéro ?
-
--   Comment séparer les facteurs exogènes qui influent sur le volume ?
-
-    -   Sol, Précipitations, FWI -\> carte raster de l’ONF ?
-
--   Nécessité d’avoir toute les données
-
-# Tests sur les vrais données
-
 ## Importation des données
 
 ```{r}
@@ -524,6 +245,17 @@ str(Inv_complet)
 
 ## Modèle de Croissance
 
+Un **modèle de croissance forestier** est un outil mathématique qui permet de prédire l’évolution d’un arbre ou d’un peuplement au cours du temps (source).
+On peut donc estimer l'évolution de la croissance en diamètre, en hauteur, ou en volume du bois à partir de **mesures dendrométriques**, de **variables écologiques** et du **scénario de gestion**.
+
+**Modèle de Chapman-Richards :**
+
+$$
+Y=A*(1-e^{-kX})^m
+$$
+
+Y : Diamètre, X : âge, (A,k,m) = paramètres à estimer (asymptote, vitesse, forme)
+
 ### Diamètre (Michaelis-Menten)
 
 ```{r}
@@ -579,92 +311,6 @@ ggplot() +
   ylim(0, 60) +
   theme(plot.title = element_text(face = "bold", size = 14)) 
 
-
-```
-
-### Test model diamètre par arbre
-
-```{r}
-#| label: fig-diam-debug
-#| fig-cap: Debuging figure for diamater model
-#| echo: false
-
-# ---- Simplify data to fix NA models bugs ----
-Inv_select <- Inv_complet[Inv_complet$Nom_Vernaculaire == "angelique", ]
-#Inv_select <- Inv_complet[Inv_complet$Code_Arbre=="MDF01_A_1_1_387",]
-
-# ---- List of NA bug models ----
-# mods_diam[sapply(mods_diam, is.null)]
-# ---- alimiao ----
-# BUG : all DBH are 0
-# ---- angelique ----
-# BUG : to much 0 at begining
-# ---- pin caraibes ----
-# BUG : model don't fit with initial state
-# ---- bois grage ----
-# BUG: at 23 Circonf 0 -> remove data
-# ---- cedre sam ----
-# BUG : to much 0 at begining
-# ---- cœur dehors ----
-# BUG : to much 0 at begining
-# ---- copaya ----
-# ---- courbaril ----
-
-# ---- Check number of trees mesear at each time ---
-# age_table <- Inv_complet %>%
-#   group_by(Nom_Vernaculaire, Age_Plantation_annee) %>%
-#   summarise(count = n(), .groups = 'drop')
-
-# ---- Selection des Données de diamètres par essence ----
-Obs_diam <- data.frame(
-  "diam" = Inv_select$DBHCorr,
-  "arbre" = as.factor(Inv_select$Code_Arbre), # as factor
-  "age" = Inv_select$Age_Plantation_annee # converted in year
-)
-
-# ---- Modèles Michaelis-Menten par essence ----
-mods_diam <- Obs_diam %>%
-  group_by(arbre) %>%
-  group_map(~ tryCatch(
-    nls(diam ~ (V_max * age) / (K_m + age), data = .x, start = list(V_max = 40, K_m = 0.06),
-        nls.control( maxiter = 500, tol = 1e-5, minFactor = 1e-8)),
-    error = function(e) NULL
-  ))
-names(mods_diam) <- unique(Obs_diam$arbre)
-
-# ---- Prédictions diamètre ----
-ages_pred <- 0:60                 # vector of ages
-arbre <- unique(Obs_diam$arbre)   # vector of trees
-Pred_diam <- expand_grid(age = ages_pred, arbre = arbre) %>%  # dataframe of diam predicted
-  group_by(arbre) %>%
-  mutate(diam = if (!is.null(mods_diam[[unique(arbre)]]))
-           predict(mods_diam[[unique(arbre)]], newdata = data.frame(age=age))
-         else NA)
-
-# ---- Graphique of data + prediction ----
-ggplot() +
-  geom_line(data = Pred_diam, aes(x = age, y = diam, color = arbre), linewidth = 1) +
-  geom_point(data = Obs_diam, aes(x = age, y = diam, color = arbre), size = 1) +
-  theme_minimal() +
-  labs(x = "Âge (ans)", y = "Diamètre (cm)") +
-  scale_y_continuous(
-    breaks = seq(0, max(Obs_diam$diam, na.rm = TRUE), by = 10),  # Espacement des étiquettes sur l'axe Y
-    labels = scales::comma  # Option pour ajouter des séparateurs de milliers
-  )+
-  guides(color = "none")
-
-# # ---- Modèle moyen ---- (not already tested)
-# library(nlme)
-# 
-# # modèle mixte non-linéaire
-# mod_moyen <- nlme(
-#   diam ~ (V_max * age) / (K_m + age),
-#   data = Obs_diam,
-#   fixed = V_max + K_m ~ 1,              # effets fixes (moyenne globale)
-#   random = V_max + K_m ~ 1 | arbre_id,  # effets aléatoires par arbre
-#   start = c(V_max = 40, K_m = 5)        # à ajuster
-# )
-# summary(mod_moyen)
 
 ```
 
@@ -727,84 +373,76 @@ ggplot() +
 
 ```
 
-## Modèle de Mortalité
+## Modèle de production de Bois d’œuvre
+
+La combinaison du modèle de croissance et du modèle de mortalité permet d'obtenir un modèle de production volumique.
+
+Soit le volume individuel d'un arbre :
+
+$$
+V_{ind}=\pi*(\frac{DBH}{2})²*H_{tot}
+$$
+
+Avec $DBH$ le diamètre du tronc en mètre à 130 cm,\
+$H_{tot}$ la hauteur totale de l'arbre,\
+et $f$ le facteur de forme.
 
 ```{r}
-#| label: fig-mort-real
-#| fig-cap: Modèles de mortalité avec données réelles (6 essences, 3 parcelles)
+#| label: fig-prod-fictive
+#| fig-cap: Modèles de production de Bois d'oeuvre avec données fictives (10 essences)
 #| echo: false
 
+# ---- Paramètres sylvicoles ----
+densite_init <- 800 # nombre d'arbre à l'hectare
 
-# ---- MORTALITY DATA ----
+# ---- Fonction de volume individuel ----
+calc_volume <- function(D,H){
+  V <- pi * (D/200)^2 * H # volume du cylindre en m³
+  return(V)
+}
 
-# ---- Selection des Données de hauteur par essence ----
-Obs_mort <- data.frame(
-  "etat_san" = as.factor(Inv_complet$Circonférence), # as factor
-  "essence" = as.factor(Inv_complet$Nom_Vern), # as factor
-  "age" = Inv_complet$Age_Plantation_annee # converted in year
-)
-
-# Define reference for mortality percentage calculation
-ref_parcelle <- length(unique(Inv_complet$Code_Arbre))
-# Reduct to one point by 'age' and 'essence' by counting death and computing mortality percentage
-Obs_mort_percent <- Obs_mort %>%
-  group_by(age, essence) %>%
-  summarise(
-    mort = (sum(etat_san == 5, na.rm = TRUE) / ref_parcelle) * 100,  # Computing mortality percentage, without NA
-    .groups = "drop"  # Pour éviter de conserver l'information de regroupement
-  )
-# Cumulate mortality percent
-Obs_mort_percent <- Obs_mort_percent %>%
-  group_by(essence) %>%  # Regrouper par essence seulement
-  arrange(essence, age) %>%  # Trier par essence et âge croissant
+# ---- Volume observations ----
+vol_obs <- left_join(Obs_diam,Obs_haut,by=c("age","essence")) %>%
+  left_join(Obs_mort, by = c("age","essence")) %>%
   mutate(
-    mort_cumul = cumsum(mort)  # Cumul des pourcentages de mortalité, incluant les âges précédents
-  ) %>%
-  ungroup()  # Désagréger les regroupements
+    V_ind = calc_volume(diam,haut),
+    N_surv = densite_init * (1 - mort/100), # denstié = 800 (set in the begining)
+    Vol_ha = N_surv * V_ind                 # volume par hectare (avec surface de parcelle = 1ha)
+  )
 
-# ---- MODELS ----
+# ---- Volume prédictions ----
+vol_pred <- left_join(Pred_diam,Pred_haut,by=c("age","essence")) %>%
+  left_join(Pred_mort, by = c("age","essence")) %>%
+  mutate(
+    V_ind = calc_volume(diam,haut),
+    N_surv = densite_init * (1 - mort/100),
+    Vol_ha = N_surv * V_ind # volume par hectare (avec surface de parcelle = 1ha)
+  )
 
-# Modèles logistiques par essence
-mods_mort <- Obs_mort_percent %>%
-  group_by(essence) %>%
-  group_map(~ tryCatch({
-    nls(mort_cumul ~ 100 / (1 + exp(-(a + b*age))),
-        data = .x,
-        start = list(a = -5, b = 0.1))
-  }, error = function(e) NULL))
-names(mods_mort) <- unique(Obs_mort$essence)
-
-# Prediction parameters
-ages_pred <- 0:60
-essence <- unique(Obs_mort$essence)
-
-# Prédictions mortalité
-Pred_mort <- expand_grid(age = ages_pred, essence = essence) %>%
-  group_by(essence) %>%
-  mutate(mort_cumul = if (!is.null(mods_mort[[unique(essence)]]))
-           predict(mods_mort[[unique(essence)]], newdata = data.frame(age=age))
-         else NA)
-
-# ---- Graphique : mortalité ----
+# ---- Graphique : volume ----
 ggplot() +
-  geom_line(data = Pred_mort, aes(x = age, y = mort_cumul, color = essence), linewidth = 1) +
-  geom_point(data = Obs_mort_percent, aes(x = age, y = mort_cumul, color = essence), size = 1) +
+  geom_line(data = vol_pred, aes(x = age, y = Vol_ha, color = essence), linewidth = 1) +
+  geom_point(data = vol_obs, aes(x = age, y = Vol_ha, color = essence), size = 1, shape = 16) +
   theme_minimal() +
-  labs(x = "Âge (ans)", y = "Mortalité cumulée (%)", color = "Essence") +
+  labs(x = "Âge (ans)", y = "Volume total (m³/ha)", color = "Essence") +
   theme(plot.title = element_text(face = "bold", size = 14))
 
 ```
 
-## Modèle de production de Bois d’œuvre
+Un autre point important en sylviculture est l'estimation de la **rotation optimale**, c'est à dire l'âge idéal de coupe pour maximiser la valeur du Bois.
 
 # TODO :
 
-1.  Fix NA models
+1.  Remove fictive data part and mortality model
 
-2.  Moove /pi in DBH in import data
+2.  Explication of mickaelis menten model, application for high o trees
 
-3.  Add data from 2025
+3.  Simplify volume model (sum of individual volumes)
 
-4.  Modify volume model without mortality model (sum of volumes)
+4.  Séparer les densité de tige et les surfaces selon les parcelles.
 
-5.  Tout traduire en Anglais
+5.  Add data from 2025
+
+6.  Change nls() to brms()
+
+7.  Tout traduire en Anglais
