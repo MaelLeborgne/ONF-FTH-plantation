@@ -251,10 +251,10 @@ On peut donc estimer l'évolution de la croissance en diamètre, en hauteur, ou 
 **Modèle de** **Michaelis-Menten :**
 
 $$
-Y=\frac{Y_{max}*t}{K_m+t}
+Y(t)=\frac{Y_{max}*t}{K_m+t}
 $$
 
-$Y$ : La variable de croissance à modéliser (Diamètre ou Hauteur), \
+$Y(t)$ : La variable de croissance à modéliser en fonction du temps (Diamètre ou Hauteur),\
 $t$ : âge des arbres en année,\
 $Y_{max}$ : Valeur maximal théorique de Y (à estimer),\
 $K_m$ : constante de Michaelis (à estimer).
@@ -268,6 +268,7 @@ $K_m$ : constante de Michaelis (à estimer).
 
 # ---- Selection des Données de diamètres par essence ----
 Obs_diam <- data.frame(
+  "arbre" = Inv_complet$Code_Arbre,
   "diam" = Inv_complet$DBHCorr,
   "essence" = as.factor(Inv_complet$Nom_Vern), # as factor
   "age" = Inv_complet$Age_Plantation_annee # converted in year
@@ -277,7 +278,7 @@ Obs_diam <- data.frame(
 Obs_diam_averaged <- Obs_diam %>%
   group_by(age, essence) %>%
   summarise(
-    diam_mean = mean(diam, na.rm = TRUE),  # Moyenne des diamètres
+    diam = mean(diam, na.rm = TRUE),  # Moyenne des diamètres
     .groups = "drop"  # Pour éviter de conserver l'information de regroupement
   )
 
@@ -285,7 +286,7 @@ Obs_diam_averaged <- Obs_diam %>%
 mods_diam <- Obs_diam_averaged %>%
   group_by(essence) %>%
   group_map(~ tryCatch(
-    nls(diam_mean ~ (V_max * age) / (K_m + age), data = .x, start = list(V_max = 10, K_m = 0.06),
+    nls(diam ~ (V_max * age) / (K_m + age), data = .x, start = list(V_max = 10, K_m = 0.06),
         nls.control( maxiter = 500, tol = 1e-5, minFactor = 1e-8)),
     error = function(e) NULL
   ))
@@ -303,7 +304,7 @@ Pred_diam <- expand_grid(age = ages_pred, essence = essence) %>%  # dataframe of
 # ---- Graphique of data + prediction : diameter ----
 ggplot() +
   geom_line(data = Pred_diam, aes(x = age, y = diam, color = essence), linewidth = 1) +
-  geom_point(data = Obs_diam_averaged, aes(x = age, y = diam_mean, color = essence), size = 1) +
+  geom_point(data = Obs_diam_averaged, aes(x = age, y = diam, color = essence), size = 1) +
   theme_minimal() +
   labs(x = "Âge (ans)", y = "Diamètre (cm)", color = "Essence") +
   scale_y_continuous(
@@ -329,6 +330,7 @@ Inv_complet <- Inv_complet[!is.na(Inv_complet$Hauteur_Totale), ]
 
 # ---- Selection des Données de hauteur par essence ----
 Obs_haut <- data.frame(
+  "arbre" = Inv_complet$Code_Arbre,
   "haut" = as.numeric(Inv_complet$Hauteur_Totale), # as num
   "essence" = as.factor(Inv_complet$Nom_Vern), # as factor
   "age" = Inv_complet$Age_Plantation_annee # converted in year
@@ -338,7 +340,7 @@ Obs_haut <- data.frame(
 Obs_haut_averaged <- Obs_haut %>%
   group_by(age, essence) %>%
   summarise(
-    haut_mean = mean(haut, na.rm = TRUE),  # Mean of diameters
+    haut = mean(haut, na.rm = TRUE),  # Mean of diameters
     .groups = "drop"  # Pour éviter de conserver l'information de regroupement
   )
 
@@ -346,7 +348,7 @@ Obs_haut_averaged <- Obs_haut %>%
 mods_haut <- Obs_haut_averaged %>%
   group_by(essence) %>%
   group_map(~ tryCatch(
-    nls(haut_mean ~ (V_max * age) / (K_m + age), data = .x, start = list(A=22,k=0.05,m=1.2)),
+    nls(haut ~ (V_max * age) / (K_m + age), data = .x, start = list(A=22,k=0.05,m=1.2)),
     error = function(e) NULL
   ))
 names(mods_haut) <- unique(Obs_haut$essence)
@@ -356,14 +358,14 @@ ages_pred <- 0:60                       # vector of ages
 essence <- unique(Obs_haut$essence)     # vector of trees
 Pred_haut <- expand_grid(age = ages_pred, essence = essence) %>%      # dataframe of haut predicted
   group_by(essence) %>%
-  mutate(haut_mean = if (!is.null(mods_haut[[unique(essence)]]))
+  mutate(haut = if (!is.null(mods_haut[[unique(essence)]]))
            predict(mods_haut[[unique(essence)]], newdata = data.frame(age=age))
          else NA)
 
 # ---- Graphique of data + prediction : total high ----
 ggplot() +
-  geom_point(data = Obs_haut_averaged, aes(x = age, y = haut_mean, color = essence), size = 1) +
-  geom_line(data = Pred_haut, aes(x = age, y = haut_mean, color = essence), linewidth = 1) +
+  geom_point(data = Obs_haut_averaged, aes(x = age, y = haut, color = essence), size = 1) +
+  geom_line(data = Pred_haut, aes(x = age, y = haut, color = essence), linewidth = 1) +
   theme_minimal() +
   labs(
     x = "Âge (ans)",
@@ -394,7 +396,7 @@ et $f$ le facteur de forme.
 #| echo: false
 
 # ---- Paramètres sylvicoles ----
-densite_init <- 800 # nombre d'arbre à l'hectare
+surf <- 1 # hectare
 
 # ---- Fonction de volume individuel ----
 calc_volume <- function(D,H){
@@ -402,28 +404,28 @@ calc_volume <- function(D,H){
   return(V)
 }
 
-# ---- Volume observations ----
-vol_obs <- left_join(Obs_diam,Obs_haut,by=c("age","essence")) %>%
-  left_join(Obs_mort, by = c("age","essence")) %>%
-  mutate(
-    V_ind = calc_volume(diam,haut),
-    N_surv = densite_init * (1 - mort/100), # denstié = 800 (set in the begining)
-    Vol_ha = N_surv * V_ind                 # volume par hectare (avec surface de parcelle = 1ha)
-  )
+# ---- Observed individual volumes (OIV) ----
+vol_obs_ind <- left_join(Obs_diam,Obs_haut,by=c("arbre","essence","age")) %>%
+  mutate(V_ind = calc_volume(diam,haut))
 
-# ---- Volume prédictions ----
+# ---- Sum of OIV's ----
+vol_obs_sum <- vol_obs_ind |>
+    group_by(essence, age) |>
+    summarise(Vol_ha = sum(V_ind) / surf) # volume par hectare (avec surface de parcelle = 1ha)
+
+# ---- Predicted individual volume (PIV) ----
 vol_pred <- left_join(Pred_diam,Pred_haut,by=c("age","essence")) %>%
-  left_join(Pred_mort, by = c("age","essence")) %>%
-  mutate(
-    V_ind = calc_volume(diam,haut),
-    N_surv = densite_init * (1 - mort/100),
-    Vol_ha = N_surv * V_ind # volume par hectare (avec surface de parcelle = 1ha)
-  )
+  mutate(V_ind = calc_volume(diam,haut))
+
+# ---- Sum of PIV's ----
+vol_pred_sum <- vol_obs_ind |>
+    group_by(essence, age) |>
+    summarise(Vol_ha = sum(V_ind) / surf) # volume par hectare (avec surface de parcelle = 1ha)
 
 # ---- Graphique : volume ----
 ggplot() +
-  geom_line(data = vol_pred, aes(x = age, y = Vol_ha, color = essence), linewidth = 1) +
-  geom_point(data = vol_obs, aes(x = age, y = Vol_ha, color = essence), size = 1, shape = 16) +
+  #geom_point(data = vol_obs_sum, aes(x = age, y = Vol_ha, color = essence), size = 1, shape = 16) +
+  geom_line(data = vol_pred_sum, aes(x = age, y = Vol_ha, color = essence), linewidth = 1) +
   theme_minimal() +
   labs(x = "Âge (ans)", y = "Volume total (m³/ha)", color = "Essence") +
   theme(plot.title = element_text(face = "bold", size = 14))
@@ -434,14 +436,12 @@ Un autre point important en sylviculture est l'estimation de la **rotation optim
 
 # TODO :
 
-1.  Explication of mickaelis menten model, application for high o trees
+1.  Change nls() to brms()
 
 2.  Simplify volume model (sum of individual volumes)
 
-3.  Séparer les densité de tige et les surfaces selon les parcelles.
+3.  Add surface of plots in the volume model
 
 4.  Add data from 2025
 
-5.  Change nls() to brms()
-
-6.  Tout traduire en Anglais
+5.  Tout traduire en Anglais
