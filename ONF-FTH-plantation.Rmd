@@ -188,8 +188,9 @@ L'édition d'un nouvel article est motivé par la nécessité de mettre à jour 
 ```{r}
 #| echo: false
 library(tidyverse)
+library(brms)
 
-Inv_complet <- read.csv2("/home/jean/Bureau/projet-ONF-FTH/Data/Thomas_17-10_DataPlantations_sansBR.csv", sep=";",dec = ",")
+Inv_complet <- read.csv2("/home/jean/Bureau/projet-ONF-FTH/Data/Rozeen_30-10_DataPlantations_sansBR.csv", sep=";",dec = ",")
 
 # Mise en facteurs de cetraines variables
 Inv_complet$Code_Essence <- as.factor(Inv_complet$Code_Essence)
@@ -261,6 +262,89 @@ $K_m$ : constante de Michaelis (à estimer).
 
 ### Accroissement en Diamètre
 
+Pré-traitement (k-nearest neighbors, split train and test)
+
+```{r}
+# ---- Selection des Données de diamètres par essence ----
+Obs_diam <- data.frame(
+  "arbre" = Inv_complet$Code_Arbre,
+  "diam" = Inv_complet$DBHCorr,
+  "essence" = as.factor(Inv_complet$Nom_Vern), # as factor
+  "age" = Inv_complet$Age_Plantation_annee # converted in year
+)
+
+# ---- Sous écantillonage pour test ----
+Obs_diam <- Obs_diam[Obs_diam$essence %in% c("angelique"),]
+
+# ---- Linear Model ----
+mod1 <- lm(diam ~ age,data = Obs_diam)
+# extract coefficients
+int <- coef(mod1)[1] # intercept
+bla <- coef(mod1)[2] # slope
+
+# ---- Graph ----
+ggplot(data = Obs_diam, aes(x = age, y = diam)) +
+  geom_abline(aes(slope = bla,
+                  intercept = int, 
+                  col='Linear model')) +
+  geom_point() +
+  theme_minimal() +
+  labs(y = "diamètre estimé", x = "âge", title = "Modèle bayésien Michaelis–Menten par essence")
+
+
+```
+
+```{r}
+# load libraries
+library(rjags)
+library(ggmcmc)
+library(ggExtra)
+library(tidyverse)
+library(gridExtra)
+
+# construct and run model
+my.model <- "
+model{
+  ## PRIORS
+  # intercept and fixed effect
+  Ymax ~ dnorm(0,0.001)
+  Km  ~ dnorm(0,0.001)
+  
+  ## residuals
+  sigma.resid ~ dunif(0,20)
+  tau.resid <- 1/(sigma.resid*sigma.resid)
+
+  ## LIKELIHOOD
+  for (n in 1:N) {
+    DBH[n] ~ dlnorm(mu[n], tau) # Lognormal likelihood
+    mu[n] <- alpha + beta * log(H[n]) # Linear model for the mean
+  }
+  for(ind in 1:N) {
+    diam[ind] <- (Ymax * age[ind]) / (Km + age[ind])
+    age[i] ~ dnorm(mu[i],tau.resid)
+  }
+}"
+
+n_chains = 3
+n_burn = 1000
+first_model <- jags.model(file=textConnection(my.model), 
+                     data = my.data,  
+                     n.chains = n_chains, 
+                     n.adapt = n_burn,
+                     quiet = FALSE)
+
+# params to track
+my.params <- c('b.intercept', 'b.black', 'sigma.resid')
+
+n_iter <- 11000 # number of iterations
+n_thin <- 10 # step between two stocked iterations
+
+samples_posterior_mcmc <- coda.samples(model = first_model, 
+                                            variable.names = my.params, 
+                                            n.iter = n_iter,
+                                            thin = n_thin)
+```
+
 ```{r}
 #| label: fig-diam-real
 #| fig-cap: Modèles de croissance en diamètre avec données réelles (23 essences)
@@ -274,46 +358,76 @@ Obs_diam <- data.frame(
   "age" = Inv_complet$Age_Plantation_annee # converted in year
 )
 
-# ---- Moyenner les duplicats par age sur chaque essence ----
-Obs_diam_averaged <- Obs_diam %>%
-  group_by(age, essence) %>%
-  summarise(
-    diam = mean(diam, na.rm = TRUE),  # Moyenne des diamètres
-    .groups = "drop"  # Pour éviter de conserver l'information de regroupement
-  )
+# ---- Sous écantillonage pour test ----
+Obs_diam <- Obs_diam[Obs_diam$essence %in% c("angelique"),]
 
-# ---- Modèles Michaelis-Menten par essence ----
-mods_diam <- Obs_diam_averaged %>%
-  group_by(essence) %>%
-  group_map(~ tryCatch(
-    nls(diam ~ (V_max * age) / (K_m + age), data = .x, start = list(V_max = 10, K_m = 0.06),
-        nls.control( maxiter = 500, tol = 1e-5, minFactor = 1e-8)),
-    error = function(e) NULL
-  ))
-names(mods_diam) <- unique(Obs_diam$essence)
+# ---- Standardisation ----
+mean_age <- mean(Obs_diam$age, na.rm = TRUE)
+sd_age   <- sd(Obs_diam$age, na.rm = TRUE)
+mean_diam <- mean(Obs_diam$diam , na.rm = TRUE)
+sd_diam   <- sd(Obs_diam$diam, na.rm = TRUE)
+# Create standardized columns
+Obs_diam$age_s <- (Obs_diam$age-mean_age)/sd_age
+Obs_diam$diam_s <- (Obs_diam$diam-mean_diam)/sd_diam
 
-# ---- Prédictions diamètre ----
-ages_pred <- 0:60                     # vector of ages
-essence <- unique(Obs_diam$essence)   # vector of trees
-Pred_diam <- expand_grid(age = ages_pred, essence = essence) %>%  # dataframe of diam predicted
-  group_by(essence) %>%
-  mutate(diam = if (!is.null(mods_diam[[unique(essence)]]))
-           predict(mods_diam[[unique(essence)]], newdata = data.frame(age=age))
-         else NA)
+# ____ Michaelis-Menten Model by species with Bayesian methode (5 Steps) ____
 
-# ---- Graphique of data + prediction : diameter ----
-ggplot() +
-  geom_line(data = Pred_diam, aes(x = age, y = diam, color = essence), linewidth = 1) +
-  geom_point(data = Obs_diam_averaged, aes(x = age, y = diam, color = essence), size = 1) +
+# ---- Step 1 – Defining the base of Michaelis–Menten model ----
+form_mm <- bf(
+  diam_s ~ (Ymax * age_s) / (Km + age_s), # Model of Mickaelis-Menten for the diameter
+  Ymax ~ 1 + (1 | arbre),   # effets de groupe essence
+  Km   ~ 1 + (1 | arbre),
+  nl = TRUE
+)
+
+# ---- Step 2 – Defining reasonable priors ----
+# Michaelis–Menten parameters are alway positive,
+# So distribution are troncated or lognormales.
+priors_mm <- c(
+  prior(normal(1, 2), nlpar = "Ymax", lb = 0, class="b"),
+  prior(normal(0, 2), nlpar = "Km", lb = 0, class="b"),
+  prior(exponential(1), nlpar = "Ymax", class = "sd", group = "arbre"),
+  prior(exponential(1), nlpar = "Km", class = "sd", group = "arbre"),
+  prior(student_t(3, 0, 2.5), class = "sigma")
+)
+
+# ---- Step 3 – Ajusting the model ----
+mod_mm_bayes <- brm(
+  data = Obs_diam,   # Data
+  formula = form_mm, # Defined model
+  prior = priors_mm, # Defined priors
+  control = list(adapt_delta = 0.95, max_treedepth = 12), # other bayesian parameters
+  iter = 2000, chains = 4, cores = 4,
+  seed = 123
+)
+
+# ---- Step 4 – Verify and summarise ----
+summary(mod_mm_bayes)
+plot(mod_mm_bayes)
+pp_check(mod_mm_bayes)
+# Effects by specie and individuals
+coef(mod_mm_bayes)
+ranef(mod_mm_bayes)
+
+# # ---- De-standardise coeff ----
+# Ymax <- Ymax_s * sd(Obs_diam$diam) + mean(Obs_diam$diam)
+# Km <- Km_s * sd(Obs_diam$age) + mean(Obs_diam$age)
+
+# ---- Step 5 – Visualization of curves by specie ----
+newdata <- expand.grid(
+  age = seq(min(Obs_diam$age), max(Obs_diam$age), length.out = 100),
+  essence = unique(Obs_diam$essence)
+)
+
+preds <- fitted(mod_mm_bayes, newdata = newdata)
+newdata <- cbind(newdata, preds)
+
+ggplot(newdata, aes(age, Estimate, color = essence)) +
+  geom_line(size = 1) +
+  geom_ribbon(aes(ymin = Q2.5, ymax = Q97.5, fill = essence), alpha = 0.2) +
+  geom_point(data = Obs_diam, aes(x = age, y = diam, color = essence), size = 1) +
   theme_minimal() +
-  labs(x = "Âge (ans)", y = "Diamètre (cm)", color = "Essence") +
-  scale_y_continuous(
-    breaks = seq(0, max(Obs_diam$diam, na.rm = TRUE), by = 10),  # Espacement des étiquettes sur l'axe Y
-    labels = scales::comma  # Option pour ajouter des séparateurs de milliers
-  ) +
-  xlim(0, 60) +
-  ylim(0, 60) +
-  theme(plot.title = element_text(face = "bold", size = 14)) 
+  labs(y = "diamètre estimé", x = "âge", title = "Modèle bayésien Michaelis–Menten par essence")
 
 
 ```
@@ -336,19 +450,11 @@ Obs_haut <- data.frame(
   "age" = Inv_complet$Age_Plantation_annee # converted in year
 )
 
-# ---- Moyenner les duplicats par age sur chaque essence ----
-Obs_haut_averaged <- Obs_haut %>%
-  group_by(age, essence) %>%
-  summarise(
-    haut = mean(haut, na.rm = TRUE),  # Mean of diameters
-    .groups = "drop"  # Pour éviter de conserver l'information de regroupement
-  )
-
-# ---- Modèles Chapman-Richards par essence ----
-mods_haut <- Obs_haut_averaged %>%
+# ---- Modèles Mickaelis-Menten par essence ----
+mods_haut <- Obs_haut %>%
   group_by(essence) %>%
   group_map(~ tryCatch(
-    nls(haut ~ (V_max * age) / (K_m + age), data = .x, start = list(A=22,k=0.05,m=1.2)),
+    nls(haut ~ (Y_max * age) / (K_m + age), data = .x, start = list(A=22,k=0.05,m=1.2)),
     error = function(e) NULL
   ))
 names(mods_haut) <- unique(Obs_haut$essence)
@@ -434,14 +540,59 @@ ggplot() +
 
 Un autre point important en sylviculture est l'estimation de la **rotation optimale**, c'est à dire l'âge idéal de coupe pour maximiser la valeur du Bois.
 
+```{r}
+#Calcul du NCI
+data_NCI <- data |> # data = jeu de donnée initial
+  filter(CensusYear == 2010,CodeAlive=TRUE) |> #Filtre sur l'année pour laquelle vous voulez calculer le NCI (si plusieurs année il faudra faire un groupe by année et calculer la moyenne dans la boucle principale)
+  select(Plot.x,idTree,Xutm,Yutm,CensusYear,Circ,POM) # Sélection des variables d'intérêt (vous avez pas besoin de Plot.x normalement)
+
+
+
+
+data_NCI <- data_NCI |> #Correction du diamètre de la même manière que je vous avais déjà montré si c'est déja fait pas besoin de ce code)
+  mutate(DBH = Circ/pi) |>
+  mutate(Taper_parameter = 0.156 - 0.023*log(DBH) - 0.021*log(POM/100)) |>
+  mutate(DBHCorr = DBH/(exp(- Taper_parameter*((POM-130)/100)))) |>
+  select(-Taper_parameter)
+
+x = c() #Initialisation du vecteur nul qui stockera les NCI calculés
+for (ind in 1:nrow(data_NCI)){ #On parcours chaque arbre
+  NC <- data_NCI |>
+    mutate(dij = sqrt((data_NCI$Xutm[ind] - Xutm)^2+(data_NCI$Yutm[ind] - Yutm)^2)) #Création d'un champ distance à l'arbre focal (ind) dans le tableau NC 
+  NCI = sum(NC$DBHCorr[which(NC$dij < 20)]*NC$DBHCorr[which(NC$dij < 20)]*exp(-0.25*NC$dij[which(NC$dij < 20)])) - #Calcul du NCI en prenant uniquement les arbres à moins de 20 m de l'arbre focal
+    NC$DBHCorr[ind]*NC$DBHCorr[ind]*exp(-0.25*NC$dij[ind]) #On soustrait le NCI calculé pour notre arbre focal (il n'exerce pas de compétition sur lui même)
+  x <- c(x,NCI) # Stock du NCI calculé
+}
+NCI <- cbind(data_NCI,x) |> # On récupère le vecteur comprenant tous les NCI dans notre jeu de donné et on convertit en m² (valeur en cm² initialement et ça fais des gros chiffres)
+  rename(NCI = x) |> 
+  mutate(NCI = NCI/10000) |> 
+  select(idTree,NCI)
+
+
+##### Ensuite on va corriger l'effet bordure des arbres ######
+geometree <- epure_data_sf |> #Ici epure_data_sf c'est le jeu de donné qui contient uniquement nos arbres dont on regarde la croissance (Pour le NCI on regardait tous les arbres vivants à l'année cible)
+  select(idTree,geometry) # on extrait la géométrie et idtree -> geometree (c'est hilarant)
+
+NCICorr <- left_join(geometree,NCI,by="idTree") # On ajoute la geometry au NCI
+
+
+NCICorr <- NCICorr |> 
+  mutate(Area_intersect = st_area(st_intersection(st_buffer(intersect_LG_placette$geometry,dist = 20),placette))) |> #Ici on crée un champ qui calcul la surface d'intersection entre un buffer de 20m de rayon autour de l'arbre focal et notre placette d'étude
+  drop_units() |> 
+  mutate(NCIcorr = if_else(Area_intersect==400*pi, NCI,NCI*400*pi/Area_intersect)) |> # Si la surface d'intersection est égale à 400pi(= un cercle de 20 m de rayon) alors on conserve le NCI (pas d'effet bordure)
+                                                                                      # Mais si ce n'est pas le cas ça veut dire qu'une partie du cercle est en dehors de la placette et donc qu'on a pas l'info de la compétition des arbres là
+                                                                                      #Ducoup  déduit le NCI des arbres de bordure proportionellement, c'est une estimation
+  select(-NCI,-Area_intersect,-geometry) |> 
+  st_drop_geometry()
+#Et voila vous avez votre NCI corriger pour vos arbres d'intérêt
+```
+
 # TODO :
 
 1.  Change nls() to brms()
 
-2.  Simplify volume model (sum of individual volumes)
+2.  Add surface of plots in the volume model
 
-3.  Add surface of plots in the volume model
+3.  Add data from 2025
 
-4.  Add data from 2025
-
-5.  Tout traduire en Anglais
+4.  Tout traduire en Anglais
