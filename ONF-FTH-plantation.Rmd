@@ -213,17 +213,13 @@ Inv_complet <- Inv_complet |>
   mutate(Taper_parameter = 0.156 - 0.023*log(DBH) - 0.021*log(POM/100)) |>
   mutate(DBHCorr = DBH/(exp(- Taper_parameter*((POM-130)/100))))
 
-# ---- DBHCorr = 0 if DBH = 0 ----
+# ---- do DBHCorr = 0 if DBH = 0 ----
 Inv_complet <- Inv_complet %>%
   mutate(DBHCorr = ifelse(DBH == 0, 0, DBHCorr))
 
-# ---- Removing dead trees for growth models ----
-Inv_complet <- Inv_complet[Inv_complet$Etat_Sanitaire == 1, ]
-# Inv_complet <- Inv_complet[Inv_complet$Etat_Sanitaire != 5, ]
-# Inv_complet <- Inv_complet[Inv_complet$Etat_Sanitaire != 6, ]
-
 # ---- Adding initial diameter and high for all trees ----
-all_trees_code <- unique(Inv_complet$Code_Arbre)     # All trees
+tree_with_starting_point <- unique(Inv_complet[Inv_complet$Age_Plantation_annee==0,]$Code_Arbre)
+tree_no_starting_point <- unique(Inv_complet[Inv_complet$Code_Arbre %in% tree_with_starting_point,]$Code_Arbre)     # All trees
 Initial_state <- data.frame(                         # Inisialized
   "Code_Arbre" = all_trees_code,
   "Age_Plantation_annee" = rep(0,length(all_trees_code)),
@@ -236,7 +232,43 @@ ref_code_espece <- ref_code_espece |> select("Code_Arbre", "Nom_Vernaculaire", "
 Initial_state   <-  left_join(Initial_state, ref_code_espece, by="Code_Arbre")                               # Make the correspondance for each Code_Arbre
 
 # Finally Bind Initial_state to Inv_complet
-Inv_complet <- bind_rows(Inv_complet,Initial_state)  
+Inv_complet <- bind_rows(Inv_complet,Initial_state)
+
+# ---- Ajouter les mort au années suivantes ----
+all_species <- unique(Inv_complet$Nom_Vernaculaire)
+for (specie in all_species) { # for each specie
+  data_specie <- Inv_complet[Inv_complet$Nom_Vernaculaire == specie,]
+  
+  all_ages <- unique(data_specie$Age_Plantation_annee) %>%
+    sort(decreasing = FALSE) # Sort age increas
+  for (i in 2:length(all_ages)) { # for each next year (begin on 2de inventory)
+    tree_before <- data_specie[data_specie$Age_Plantation_annee==all_ages[i-1],]$Code_Arbre %>% # the previous age
+      unique()
+    tree_current <- data_specie[data_specie$Age_Plantation_annee==all_ages[i],]$Code_Arbre %>% # the current age
+      unique()
+    missing_tree <- tree_before[!tree_before %in% tree_current] # previous tree not in current age
+    
+    # prepare NaN line with same structure than Inv_complet
+    line_NaN <- t(data.frame("new_line"=rep(NaN, ncol(Inv_complet))))
+    line_NaN <- as.data.frame(line_NaN)
+    names(line_NaN) <- names(Inv_complet)
+    
+    for (tree in missing_tree) { # Add missing tree at dead state
+      current_line <- line_NaN %>%
+        mutate(                  # Fill target information for current line
+          Code_Arbre = tree, # basic information
+          Age_Plantation_annee = all_ages[i], # current age where tree is missing
+          Etat_Sanitaire = 5, # dead trees
+          note_inventaire = "Dead trees added in the data importation"
+          ) 
+      Inv_complet <- rbind(Inv_complet, current_line) # Add the new line
+    }
+  }
+}
+# Verification of good death completing
+table(Inv_complet$Age_Plantation_annee)
+
+# Check doublons age/arbre
 
 # ---- Verification of variables types ----
 str(Inv_complet)
@@ -277,13 +309,13 @@ Obs_diam <- data.frame(
 Obs_diam <- Obs_diam[Obs_diam$essence %in% c("angelique"),]
 
 # ---- Linear Model ----
-mod1 <- lm(diam ~ age,data = Obs_diam)
+mod1 <- lm(log(diam) ~ log(age),data = Obs_diam[Obs_diam$diam!=0,])
 # extract coefficients
 int <- coef(mod1)[1] # intercept
 bla <- coef(mod1)[2] # slope
 
 # ---- Graph ----
-ggplot(data = Obs_diam, aes(x = age, y = diam)) +
+ggplot(data = Obs_diam[Obs_diam$diam!=0,], aes(x = log(age), y = log(diam))) +
   geom_abline(aes(slope = bla,
                   intercept = int, 
                   col='Linear model')) +
@@ -295,54 +327,54 @@ ggplot(data = Obs_diam, aes(x = age, y = diam)) +
 ```
 
 ```{r}
-# load libraries
-library(rjags)
-library(ggmcmc)
-library(ggExtra)
-library(tidyverse)
-library(gridExtra)
-
-# construct and run model
-my.model <- "
-model{
-  ## PRIORS
-  # intercept and fixed effect
-  Ymax ~ dnorm(0,0.001)
-  Km  ~ dnorm(0,0.001)
-  
-  ## residuals
-  sigma.resid ~ dunif(0,20)
-  tau.resid <- 1/(sigma.resid*sigma.resid)
-
-  ## LIKELIHOOD
-  for (n in 1:N) {
-    DBH[n] ~ dlnorm(mu[n], tau) # Lognormal likelihood
-    mu[n] <- alpha + beta * log(H[n]) # Linear model for the mean
-  }
-  for(ind in 1:N) {
-    diam[ind] <- (Ymax * age[ind]) / (Km + age[ind])
-    age[i] ~ dnorm(mu[i],tau.resid)
-  }
-}"
-
-n_chains = 3
-n_burn = 1000
-first_model <- jags.model(file=textConnection(my.model), 
-                     data = my.data,  
-                     n.chains = n_chains, 
-                     n.adapt = n_burn,
-                     quiet = FALSE)
-
-# params to track
-my.params <- c('b.intercept', 'b.black', 'sigma.resid')
-
-n_iter <- 11000 # number of iterations
-n_thin <- 10 # step between two stocked iterations
-
-samples_posterior_mcmc <- coda.samples(model = first_model, 
-                                            variable.names = my.params, 
-                                            n.iter = n_iter,
-                                            thin = n_thin)
+# # load libraries
+# library(rjags)
+# library(ggmcmc)
+# library(ggExtra)
+# library(tidyverse)
+# library(gridExtra)
+# 
+# # construct and run model
+# my.model <- "
+# model{
+#   ## PRIORS
+#   # intercept and fixed effect
+#   Ymax ~ dnorm(0,0.001)
+#   Km  ~ dnorm(0,0.001)
+#   
+#   ## residuals
+#   sigma.resid ~ dunif(0,20)
+#   tau.resid <- 1/(sigma.resid*sigma.resid)
+# 
+#   ## LIKELIHOOD
+#   for (n in 1:N) {
+#     DBH[n] ~ dlnorm(mu[n], tau) # Lognormal likelihood
+#     mu[n] <- alpha + beta * log(H[n]) # Linear model for the mean
+#   }
+#   for(ind in 1:N) {
+#     diam[ind] <- (Ymax * age[ind]) / (Km + age[ind])
+#     age[i] ~ dnorm(mu[i],tau.resid)
+#   }
+# }"
+# 
+# n_chains = 3
+# n_burn = 1000
+# first_model <- jags.model(file=textConnection(my.model), 
+#                      data = my.data,  
+#                      n.chains = n_chains, 
+#                      n.adapt = n_burn,
+#                      quiet = FALSE)
+# 
+# # params to track
+# my.params <- c('b.intercept', 'b.black', 'sigma.resid')
+# 
+# n_iter <- 11000 # number of iterations
+# n_thin <- 10 # step between two stocked iterations
+# 
+# samples_posterior_mcmc <- coda.samples(model = first_model, 
+#                                             variable.names = my.params, 
+#                                             n.iter = n_iter,
+#                                             thin = n_thin)
 ```
 
 ```{r}
@@ -540,20 +572,67 @@ ggplot() +
 
 Un autre point important en sylviculture est l'estimation de la **rotation optimale**, c'est à dire l'âge idéal de coupe pour maximiser la valeur du Bois.
 
+## Survie
+
 ```{r}
-#Calcul du NCI
-data_NCI <- data |> # data = jeu de donnée initial
-  filter(CensusYear == 2010,CodeAlive=TRUE) |> #Filtre sur l'année pour laquelle vous voulez calculer le NCI (si plusieurs année il faudra faire un groupe by année et calculer la moyenne dans la boucle principale)
-  select(Plot.x,idTree,Xutm,Yutm,CensusYear,Circ,POM) # Sélection des variables d'intérêt (vous avez pas besoin de Plot.x normalement)
+
+data <- Inv_complet[Inv_complet$Nom_Vernaculaire %in% c("angelique"),] %>%
+  select(Code_Arbre,DBHCorr,Nom_Vernaculaire,Age_Plantation_annee,Etat_Sanitaire)
+
+unique_ages <- unique(data$Age_Plantation_annee)
+Nb_ages <- length(unique_ages)
+Pm <- data.frame(# Probabilité fréquentiste de mortalité pour chaque intervale de temps
+  "Age" = unique_ages,
+  "Nmt" = rep(0,Nb_ages), # Nombre de Morts totale
+  "Nms" = rep(0,Nb_ages), # Nombre de Morts supplémentaire à l'année précédent
+  "Nv" = rep(0,Nb_ages), # Nombre de Vivant
+  "Prob" = rep(0,Nb_ages), # Probabilité fréquentiste de mortalité pour chaque intervale de temps
+  "NCI" = rep(0,Nb_ages) # Indice de Compétition
+) 
+
+# Remplissage des nombre de mort et vivant par année
+for (i in Nb_ages) {
+  data_age <- data[data$Age_Plantation_annee==Pm$Age[i],]
+  Pm$Nmt[i] <- length(data_age[data_age$Etat_Sanitaire==5,])
+  Pm$Nv[i] <- length(data_age[data_age$Etat_Sanitaire!=5,])
+}
+
+for (i in Nb_ages) {
+  # Sélectionner selon l'annee et le Nom_Vern
+  TON_year_tot <- TON_year %>% filter(annee == a & Nom_Vern == n)
+  # Sélectioner les mort parmis eux
+  TON_year_mort <- TON_year_tot %>% filter(Etat==5)
+  # Calucle de la mortalité
+  df_sum$mortality[i] <- nrow(TON_year_mort) / nrow(TON_year_tot)
+}
+
+```
+
+```{r}
+# ---- Selection of Data for NCI calculation ----
+data_NCI <- data.frame(
+  "arbre" = Inv_complet$Code_Arbre,
+  "DBHCorr" = Inv_complet$DBHCorr,
+  "essence" = as.factor(Inv_complet$Nom_Vern), # as factor
+  "age" = Inv_complet$Age_Plantation_annee, # converted in year
+  "Xutm" = Inv_complet$X_utm,
+  "Yutm" = Inv_complet$Y_utm
+)
+
+# ---- Sous écantillonage pour test ----
+data_NCI <- data_NCI[data_NCI$essence %in% c("angelique"),]
+
+# #Calcul du NCI
+# data_NCI <- data_NCI |> # data = jeu de donnée initial
+#   filter(age == 15,CodeAlive=TRUE) #|> #Filtre sur l'année pour laquelle vous voulez calculer le NCI (si plusieurs année il faudra faire un groupe by année et calculer la moyenne dans la boucle principale)
+#   #select(Plot.x,idTree,Xutm,Yutm,CensusYear,Circ,POM) # Sélection des variables d'intérêt
 
 
-
-
-data_NCI <- data_NCI |> #Correction du diamètre de la même manière que je vous avais déjà montré si c'est déja fait pas besoin de ce code)
-  mutate(DBH = Circ/pi) |>
-  mutate(Taper_parameter = 0.156 - 0.023*log(DBH) - 0.021*log(POM/100)) |>
-  mutate(DBHCorr = DBH/(exp(- Taper_parameter*((POM-130)/100)))) |>
-  select(-Taper_parameter)
+# data_NCI <- data_NCI |> #Correction du diamètre de la même manière que je vous avais déjà montré si c'est déja fait pas besoin de ce code)
+#   mutate(DBH = Circ/pi) |>
+#   mutate(Taper_parameter = 0.156 - 0.023*log(DBH) - 0.021*log(POM/100)) |>
+#   mutate(DBHCorr = DBH/(exp(- Taper_parameter*((POM-130)/100)))) |>
+#   select(-Taper_parameter)
 
 x = c() #Initialisation du vecteur nul qui stockera les NCI calculés
 for (ind in 1:nrow(data_NCI)){ #On parcours chaque arbre
@@ -566,12 +645,12 @@ for (ind in 1:nrow(data_NCI)){ #On parcours chaque arbre
 NCI <- cbind(data_NCI,x) |> # On récupère le vecteur comprenant tous les NCI dans notre jeu de donné et on convertit en m² (valeur en cm² initialement et ça fais des gros chiffres)
   rename(NCI = x) |> 
   mutate(NCI = NCI/10000) |> 
-  select(idTree,NCI)
+  select(arbre,NCI)
 
 
 ##### Ensuite on va corriger l'effet bordure des arbres ######
 geometree <- epure_data_sf |> #Ici epure_data_sf c'est le jeu de donné qui contient uniquement nos arbres dont on regarde la croissance (Pour le NCI on regardait tous les arbres vivants à l'année cible)
-  select(idTree,geometry) # on extrait la géométrie et idtree -> geometree (c'est hilarant)
+  select(arbre,geometry) # on extrait la géométrie et idtree -> geometree (c'est hilarant)
 
 NCICorr <- left_join(geometree,NCI,by="idTree") # On ajoute la geometry au NCI
 
