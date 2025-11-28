@@ -219,12 +219,13 @@ Inv_complet <- Inv_complet %>%
 
 # ---- Adding initial diameter and high for all trees ----
 tree_with_starting_point <- unique(Inv_complet[Inv_complet$Age_Plantation_annee==0,]$Code_Arbre)
-tree_no_starting_point <- unique(Inv_complet[Inv_complet$Code_Arbre %in% tree_with_starting_point,]$Code_Arbre)     # All trees
+tree_no_starting_point <- unique(Inv_complet[Inv_complet$Code_Arbre %in% tree_with_starting_point,]$Code_Arbre)     
+# All trees
 Initial_state <- data.frame(                         # Inisialized
-  "Code_Arbre" = all_trees_code,
-  "Age_Plantation_annee" = rep(0,length(all_trees_code)),
-  "DBHCorr" = rep(0,length(all_trees_code)),
-  "Hauteur_Totale" = rep(0,length(all_trees_code))
+  "Code_Arbre" = tree_no_starting_point,
+  "Age_Plantation_annee" = rep(0,length(tree_no_starting_point)),
+  "DBHCorr" = rep(0,length(tree_no_starting_point)),
+  "Hauteur_Totale" = rep(0,length(tree_no_starting_point))
 )
 # Make correspondance with Code_Essence, Nom_Vernaculaire, Famille, Genre, Espece
 ref_code_espece <- Inv_complet %>% distinct(Code_Arbre, .keep_all = TRUE)                                      # first make a reference
@@ -233,40 +234,6 @@ Initial_state   <-  left_join(Initial_state, ref_code_espece, by="Code_Arbre")  
 
 # Finally Bind Initial_state to Inv_complet
 Inv_complet <- bind_rows(Inv_complet,Initial_state)
-
-# ---- Ajouter les mort au années suivantes ----
-all_species <- unique(Inv_complet$Nom_Vernaculaire)
-for (specie in all_species) { # for each specie
-  data_specie <- Inv_complet[Inv_complet$Nom_Vernaculaire == specie,]
-  
-  all_ages <- unique(data_specie$Age_Plantation_annee) %>%
-    sort(decreasing = FALSE) # Sort age increas
-  for (i in 2:length(all_ages)) { # for each next year (begin on 2de inventory)
-    tree_before <- data_specie[data_specie$Age_Plantation_annee==all_ages[i-1],]$Code_Arbre %>% # the previous age
-      unique()
-    tree_current <- data_specie[data_specie$Age_Plantation_annee==all_ages[i],]$Code_Arbre %>% # the current age
-      unique()
-    missing_tree <- tree_before[!tree_before %in% tree_current] # previous tree not in current age
-    
-    # prepare NaN line with same structure than Inv_complet
-    line_NaN <- t(data.frame("new_line"=rep(NaN, ncol(Inv_complet))))
-    line_NaN <- as.data.frame(line_NaN)
-    names(line_NaN) <- names(Inv_complet)
-    
-    for (tree in missing_tree) { # Add missing tree at dead state
-      current_line <- line_NaN %>%
-        mutate(                  # Fill target information for current line
-          Code_Arbre = tree, # basic information
-          Age_Plantation_annee = all_ages[i], # current age where tree is missing
-          Etat_Sanitaire = 5, # dead trees
-          note_inventaire = "Dead trees added in the data importation"
-          ) 
-      Inv_complet <- rbind(Inv_complet, current_line) # Add the new line
-    }
-  }
-}
-# Verification of good death completing
-table(Inv_complet$Age_Plantation_annee)
 
 # Check doublons age/arbre
 
@@ -292,144 +259,128 @@ $t$ : âge des arbres en année,\
 $Y_{max}$ : Valeur maximal théorique de Y (à estimer),\
 $K_m$ : constante de Michaelis (à estimer).
 
-### Accroissement en Diamètre
+**Linéarisation du modèle de Michaelis-Menten :**
 
-Pré-traitement (k-nearest neighbors, split train and test)
+$$
+\frac{1}{Y(t)}=\frac{K_m+t}{Y_{max}*t}=\left(\frac{K_m}{V_{max}} \right) \frac{1}{t}+\frac{1}{V_{max}}
+$$
+
+On peut donc appliquer un model linéaire de forme y=ax+b avec le changement de variable suivant :
+
+$y=\frac{1}{Y(t)};a=\frac{K_m}{V_{max}};x=\frac{1}{t};b=\frac{1}{V_{max}}$
+
+d'ou on déduit le paramètre de michaelis menten $V_{max}=\frac{1}{b}$ et $K_m=a*V_{max}$
+
+### Accroissement en Diamètre (linéarisé)
 
 ```{r}
-# ---- Selection des Données de diamètres par essence ----
-Obs_diam <- data.frame(
-  "arbre" = Inv_complet$Code_Arbre,
-  "diam" = Inv_complet$DBHCorr,
-  "essence" = as.factor(Inv_complet$Nom_Vern), # as factor
-  "age" = Inv_complet$Age_Plantation_annee # converted in year
+# ---- Selection of species ----
+select_species <- Inv_complet[Inv_complet$Nom_Vernaculaire %in% c("angelique","bagasse","yayamadou montagne","kopi kwali"),]
+
+# ---- Selection of columns ----
+select_col_sp <- data.frame(
+  "arbre" = select_species$Code_Arbre,
+  "diam" = select_species$DBHCorr,
+  "Htot" = select_species$Hauteur_Totale,
+  "essence" = as.factor(select_species$Nom_Vernaculaire), # as factor
+  "age" = select_species$Age_Plantation_annee, # converted in year
+  "site" = as.factor(select_species$Libelle_Plantation)
+) 
+
+# ---- Linearisation ----
+select_col_sp <- select_col_sp%>%
+  mutate(across(everything(), ~ ifelse(. == 0, 0.1, .))) %>%
+  mutate(inverted_diam = 1/diam) %>%
+  mutate(inverted_Htot = 1/Htot) %>%
+  mutate(inverted_age = 1/age)
+
+# ---- Linear model ----
+mod_diam <- lm(inverted_diam ~ inverted_age, data = select_col_sp)
+
+# Coefficients du modèle linéaire
+coefficients <- coef(mod_diam)
+b <- coefficients[1]  # ordonnée à l'origine (1/Vmax)
+a <- coefficients[2]  # pente (Km/Vmax)
+
+# Calculer Vmax et Km
+Vmax <- 1 / b
+Km <- a * Vmax
+
+# ---- Prediction ----
+newdata <- expand.grid(
+  new_age = seq(min(select_col_sp$age), max(select_col_sp$age), length.out = 20),
+  essence = unique(select_col_sp$essence)
 )
+pred_diam <- (Vmax * newdata$new_age) / (Km + newdata$new_age)
+newdata <- cbind(newdata, pred_diam)
 
-# ---- Sous écantillonage pour test ----
-Obs_diam <- Obs_diam[Obs_diam$essence %in% c("angelique"),]
-
-# ---- Linear Model ----
-mod1 <- lm(log(diam) ~ log(age),data = Obs_diam[Obs_diam$diam!=0,])
-# extract coefficients
-int <- coef(mod1)[1] # intercept
-bla <- coef(mod1)[2] # slope
-
-# ---- Graph ----
-ggplot(data = Obs_diam[Obs_diam$diam!=0,], aes(x = log(age), y = log(diam))) +
-  geom_abline(aes(slope = bla,
-                  intercept = int, 
-                  col='Linear model')) +
-  geom_point() +
-  theme_minimal() +
-  labs(y = "diamètre estimé", x = "âge", title = "Modèle bayésien Michaelis–Menten par essence")
-
+# ---- Visualisation ----
+ggplot(newdata, aes(inverted_age, inverted_diam, color = essence)) +
+  geom_line(size = 1) +
+  #geom_ribbon(aes(ymin = Q2.5, ymax = Q97.5, fill = essence), alpha = 0.2) +
+  geom_point(data = select_col_sp, aes(x = inverted_age, y = inverted_diam, color = essence), size = 1) +
+  theme_minimal() #+
+  #labs(y = "Estimate diameter", x = "Age (in years)", title = "Michaelis–Menten model by essence fitted with Bayesian method")
 
 ```
 
-```{r}
-# # load libraries
-# library(rjags)
-# library(ggmcmc)
-# library(ggExtra)
-# library(tidyverse)
-# library(gridExtra)
-# 
-# # construct and run model
-# my.model <- "
-# model{
-#   ## PRIORS
-#   # intercept and fixed effect
-#   Ymax ~ dnorm(0,0.001)
-#   Km  ~ dnorm(0,0.001)
-#   
-#   ## residuals
-#   sigma.resid ~ dunif(0,20)
-#   tau.resid <- 1/(sigma.resid*sigma.resid)
-# 
-#   ## LIKELIHOOD
-#   for (n in 1:N) {
-#     DBH[n] ~ dlnorm(mu[n], tau) # Lognormal likelihood
-#     mu[n] <- alpha + beta * log(H[n]) # Linear model for the mean
-#   }
-#   for(ind in 1:N) {
-#     diam[ind] <- (Ymax * age[ind]) / (Km + age[ind])
-#     age[i] ~ dnorm(mu[i],tau.resid)
-#   }
-# }"
-# 
-# n_chains = 3
-# n_burn = 1000
-# first_model <- jags.model(file=textConnection(my.model), 
-#                      data = my.data,  
-#                      n.chains = n_chains, 
-#                      n.adapt = n_burn,
-#                      quiet = FALSE)
-# 
-# # params to track
-# my.params <- c('b.intercept', 'b.black', 'sigma.resid')
-# 
-# n_iter <- 11000 # number of iterations
-# n_thin <- 10 # step between two stocked iterations
-# 
-# samples_posterior_mcmc <- coda.samples(model = first_model, 
-#                                             variable.names = my.params, 
-#                                             n.iter = n_iter,
-#                                             thin = n_thin)
-```
+### Accroissement en Diamètre (Bayesien)
 
 ```{r}
 #| label: fig-diam-real
 #| fig-cap: Modèles de croissance en diamètre avec données réelles (23 essences)
 #| echo: false
 
-# ---- Selection des Données de diamètres par essence ----
-Obs_diam <- data.frame(
+# -------------------- BAYESIAN MODEL --------------------
+
+# ---- Selection of data to modelise ----
+Obs_select <- data.frame(
   "arbre" = Inv_complet$Code_Arbre,
   "diam" = Inv_complet$DBHCorr,
-  "essence" = as.factor(Inv_complet$Nom_Vern), # as factor
-  "age" = Inv_complet$Age_Plantation_annee # converted in year
+  "Htot" = Inv_complet$Hauteur_Totale,
+  "essence" = as.factor(Inv_complet$Nom_Vernaculaire), # as factor
+  "age" = Inv_complet$Age_Plantation_annee, # converted in year
+  "site" = as.factor(Inv_complet$Libelle_Plantation)
 )
 
-# ---- Sous écantillonage pour test ----
-Obs_diam <- Obs_diam[Obs_diam$essence %in% c("angelique"),]
-
-# ---- Standardisation ----
-mean_age <- mean(Obs_diam$age, na.rm = TRUE)
-sd_age   <- sd(Obs_diam$age, na.rm = TRUE)
-mean_diam <- mean(Obs_diam$diam , na.rm = TRUE)
-sd_diam   <- sd(Obs_diam$diam, na.rm = TRUE)
-# Create standardized columns
-Obs_diam$age_s <- (Obs_diam$age-mean_age)/sd_age
-Obs_diam$diam_s <- (Obs_diam$diam-mean_diam)/sd_diam
+# ---- Select species ----
+Obs_select <- Obs_select[Obs_select$essence %in% c("angelique","bagasse","yayamadou montagne","kopi kwali"),]
+# remove unused factor levels
+Obs_select$essence <- droplevels(Obs_select$essence)
+Obs_select$site <- droplevels(Obs_select$site)
 
 # ____ Michaelis-Menten Model by species with Bayesian methode (5 Steps) ____
 
 # ---- Step 1 – Defining the base of Michaelis–Menten model ----
 form_mm <- bf(
-  diam_s ~ (Ymax * age_s) / (Km + age_s), # Model of Mickaelis-Menten for the diameter
-  Ymax ~ 1 + (1 | arbre),   # effets de groupe essence
-  Km   ~ 1 + (1 | arbre),
+  diam ~ (Ymax * age) / (Km + age), # Model of Mickaelis-Menten for the diameter
+  Ymax ~ 1 + essence + (1 | site),   # hierachical effect of specie and tree
+  Km   ~ 1 + essence + (1 | site),
   nl = TRUE
 )
 
 # ---- Step 2 – Defining reasonable priors ----
-# Michaelis–Menten parameters are alway positive,
-# So distribution are troncated or lognormales.
+# Michaelis–Menten parameters are alway positive, distribution are troncated (lb=0).
 priors_mm <- c(
-  prior(normal(1, 2), nlpar = "Ymax", lb = 0, class="b"),
-  prior(normal(0, 2), nlpar = "Km", lb = 0, class="b"),
-  prior(exponential(1), nlpar = "Ymax", class = "sd", group = "arbre"),
-  prior(exponential(1), nlpar = "Km", class = "sd", group = "arbre"),
-  prior(student_t(3, 0, 2.5), class = "sigma")
+  # Priors sur les paramètres non linéaires (intercepts)
+  prior(normal(0, 100), lb = 0, nlpar = "Ymax", class = "b"),
+  prior(normal(0, 100), lb = 0, nlpar = "Km",   class = "b"),
+  
+  # Priors sur l'effet aléatoire site
+  prior(normal(0, 100), lb = 0, nlpar = "Ymax", class = "sd", group = "site"),
+  prior(normal(0, 100), lb = 0, nlpar = "Km",   class = "sd", group = "site"),
+  
+  # Prior sur sigma
+  prior(normal(0, 100), class = "sigma")
 )
 
 # ---- Step 3 – Ajusting the model ----
 mod_mm_bayes <- brm(
-  data = Obs_diam,   # Data
+  data = Obs_select,   # Data
   formula = form_mm, # Defined model
   prior = priors_mm, # Defined priors
   control = list(adapt_delta = 0.95, max_treedepth = 12), # other bayesian parameters
-  iter = 2000, chains = 4, cores = 4,
+  iter = 2000, chains = 4, cores = 12,
   seed = 123
 )
 
@@ -441,26 +392,22 @@ pp_check(mod_mm_bayes)
 coef(mod_mm_bayes)
 ranef(mod_mm_bayes)
 
-# # ---- De-standardise coeff ----
-# Ymax <- Ymax_s * sd(Obs_diam$diam) + mean(Obs_diam$diam)
-# Km <- Km_s * sd(Obs_diam$age) + mean(Obs_diam$age)
-
 # ---- Step 5 – Visualization of curves by specie ----
-newdata <- expand.grid(
-  age = seq(min(Obs_diam$age), max(Obs_diam$age), length.out = 100),
-  essence = unique(Obs_diam$essence)
-)
 
-preds <- fitted(mod_mm_bayes, newdata = newdata)
+newdata <- expand.grid(
+  age = seq(min(Obs_select$age), max(Obs_select$age), length.out = 20),
+  essence = unique(Obs_select$essence)
+)
+# Prédictions avec seulement les effets fixes
+preds <- fitted(mod_mm_bayes, newdata = newdata, re.form = ~ essence)
 newdata <- cbind(newdata, preds)
 
 ggplot(newdata, aes(age, Estimate, color = essence)) +
   geom_line(size = 1) +
   geom_ribbon(aes(ymin = Q2.5, ymax = Q97.5, fill = essence), alpha = 0.2) +
-  geom_point(data = Obs_diam, aes(x = age, y = diam, color = essence), size = 1) +
+  geom_point(data = Obs_select, aes(x = age, y = diam, color = essence), size = 1) +
   theme_minimal() +
-  labs(y = "diamètre estimé", x = "âge", title = "Modèle bayésien Michaelis–Menten par essence")
-
+  labs(y = "Estimate diameter", x = "Age (in years)", title = "Michaelis–Menten model by essence fitted with Bayesian method")
 
 ```
 
@@ -514,99 +461,22 @@ ggplot() +
 
 ```
 
-## Modèle de production de Bois d’œuvre
-
-La combinaison du modèle de croissance et du modèle de mortalité permet d'obtenir un modèle de production volumique.
-
-Soit le volume individuel d'un arbre :
+## Multiple linear model of Biomass Production Rate
 
 $$
-V_{ind}=\pi*(\frac{DBH}{2})²*H_{tot}
+BPR_{i,s,a}=\beta_0+\beta_1 . DBH_{i,s,a}+\beta_2 .MAP_{a}+\beta_3.NCI_{i,s,a}+\beta_4.TWI_{i,s,a}+\lambda_s + \epsilon_{a,i}
 $$
 
-Avec $DBH$ le diamètre du tronc en mètre à 130 cm,\
-$H_{tot}$ la hauteur totale de l'arbre,\
-et $f$ le facteur de forme.
-
-```{r}
-#| label: fig-prod-fictive
-#| fig-cap: Modèles de production de Bois d'oeuvre avec données fictives (10 essences)
-#| echo: false
-
-# ---- Paramètres sylvicoles ----
-surf <- 1 # hectare
-
-# ---- Fonction de volume individuel ----
-calc_volume <- function(D,H){
-  V <- pi * (D/200)^2 * H # volume du cylindre en m³
-  return(V)
-}
-
-# ---- Observed individual volumes (OIV) ----
-vol_obs_ind <- left_join(Obs_diam,Obs_haut,by=c("arbre","essence","age")) %>%
-  mutate(V_ind = calc_volume(diam,haut))
-
-# ---- Sum of OIV's ----
-vol_obs_sum <- vol_obs_ind |>
-    group_by(essence, age) |>
-    summarise(Vol_ha = sum(V_ind) / surf) # volume par hectare (avec surface de parcelle = 1ha)
-
-# ---- Predicted individual volume (PIV) ----
-vol_pred <- left_join(Pred_diam,Pred_haut,by=c("age","essence")) %>%
-  mutate(V_ind = calc_volume(diam,haut))
-
-# ---- Sum of PIV's ----
-vol_pred_sum <- vol_obs_ind |>
-    group_by(essence, age) |>
-    summarise(Vol_ha = sum(V_ind) / surf) # volume par hectare (avec surface de parcelle = 1ha)
-
-# ---- Graphique : volume ----
-ggplot() +
-  #geom_point(data = vol_obs_sum, aes(x = age, y = Vol_ha, color = essence), size = 1, shape = 16) +
-  geom_line(data = vol_pred_sum, aes(x = age, y = Vol_ha, color = essence), linewidth = 1) +
-  theme_minimal() +
-  labs(x = "Âge (ans)", y = "Volume total (m³/ha)", color = "Essence") +
-  theme(plot.title = element_text(face = "bold", size = 14))
-
-```
-
-Un autre point important en sylviculture est l'estimation de la **rotation optimale**, c'est à dire l'âge idéal de coupe pour maximiser la valeur du Bois.
+$BPR$ : Biomass production rate,\
+$DBH$ : diameter at breast heigth,\
+$MAP$ : Mean annual precipitation,\
+$NCI$ : Neighboors competition indice,\
+$TWI$ : Topographic water index,\
+$\lambda_s$ : differential effect of specie,\
+$\epsilon_{a,i}$ : the residual between data and the model\
+Index : ( $i$ : individual, $s$ : specie, $a$ : age)
 
 ## Survie
-
-```{r}
-
-data <- Inv_complet[Inv_complet$Nom_Vernaculaire %in% c("angelique"),] %>%
-  select(Code_Arbre,DBHCorr,Nom_Vernaculaire,Age_Plantation_annee,Etat_Sanitaire)
-
-unique_ages <- unique(data$Age_Plantation_annee)
-Nb_ages <- length(unique_ages)
-Pm <- data.frame(# Probabilité fréquentiste de mortalité pour chaque intervale de temps
-  "Age" = unique_ages,
-  "Nmt" = rep(0,Nb_ages), # Nombre de Morts totale
-  "Nms" = rep(0,Nb_ages), # Nombre de Morts supplémentaire à l'année précédent
-  "Nv" = rep(0,Nb_ages), # Nombre de Vivant
-  "Prob" = rep(0,Nb_ages), # Probabilité fréquentiste de mortalité pour chaque intervale de temps
-  "NCI" = rep(0,Nb_ages) # Indice de Compétition
-) 
-
-# Remplissage des nombre de mort et vivant par année
-for (i in Nb_ages) {
-  data_age <- data[data$Age_Plantation_annee==Pm$Age[i],]
-  Pm$Nmt[i] <- length(data_age[data_age$Etat_Sanitaire==5,])
-  Pm$Nv[i] <- length(data_age[data_age$Etat_Sanitaire!=5,])
-}
-
-for (i in Nb_ages) {
-  # Sélectionner selon l'annee et le Nom_Vern
-  TON_year_tot <- TON_year %>% filter(annee == a & Nom_Vern == n)
-  # Sélectioner les mort parmis eux
-  TON_year_mort <- TON_year_tot %>% filter(Etat==5)
-  # Calucle de la mortalité
-  df_sum$mortality[i] <- nrow(TON_year_mort) / nrow(TON_year_tot)
-}
-
-```
 
 ```{r}
 # ---- Selection of Data for NCI calculation ----
@@ -666,12 +536,16 @@ NCICorr <- NCICorr |>
 #Et voila vous avez votre NCI corriger pour vos arbres d'intérêt
 ```
 
+Un autre point important en sylviculture est l'estimation de la **rotation optimale**, c'est à dire l'âge idéal de coupe pour maximiser la valeur du Bois.
+
 # TODO :
 
-1.  Change nls() to brms()
+1.  Calcul la proba de survie
 
-2.  Add surface of plots in the volume model
+2.  Calcul du NCI
 
-3.  Add data from 2025
+3.  Add surface of plots in the volume model
 
-4.  Tout traduire en Anglais
+4.  Add data from 2025
+
+5.  Tout traduire en Anglais
