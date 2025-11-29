@@ -1,5 +1,5 @@
 ---
-title: "Étude du comportement de plusieurs essences en plantation de bois d'oeuvre, Guyane Française"
+title: "How neotropical tree behave in monospecific timber plantation : case study of Bagasse, Angélique and Yayamadou"
 author:
   - name: "Maël Leborgne"
     authsuperscript: 1*
@@ -152,38 +152,7 @@ knitr::opts_chunk$set(dev.args = list(bg = "transparent"))
 set.seed(973)
 ```
 
-# Introduction
-
-## Contexte
-
-La Guyane française est un territoire de 84 millions d'hectares (Mha).
-La majorité (96%) de la surface de cette région d'Amérique latine est recouverte par la forêt Amazonienne.
-Depuis 2005, l'office nationale des forêts (ONF) exploite le domaine forestier permanent (DFP) qui correspond à une zone de 2,4 Mha et qui forme une bande entre les zones habitées sur le littorale et les forêts non exploitées.
-Cette zone de forêt naturelle est exploitée selon des règles de gestion durable du label PEFC.
-Ces règles comprennent des rotations de 65 ans entre 2 coupes, une intensité d’exploitation de 5 tiges/ha et la mise en place de séries d’intérêt écologique d’où l’exploitation forestière est exclue.
-L’exploitation forestière, malgré un large éventail d’espèces (100) technologiquement utilisables et de qualité remarquable, n’exploite que 15 à 30 espèces et se concentre sur seulement 3 espèces.
-Or les pratiques d’exploitation actuelles ne permettent pas la reconstitution du volume commercial en fin de rotation (Piponiot et al 2019).
-
-Aux enjeux de conservation et protection de la forêt, s'ajoute un enjeu de démographie.
-En effet, la Guyane connaît une forte croissance démographique (+1,7% par ans entre 2020 et 2023) (INSEE, 2019).
-Cette croissance démographique entraîne une augmentation de la demande en logement, et donc en bois d’œuvre.
-Ainsi la filière Forêt-Bois prévoit le développement des modèles de plantation forestière dans son Programme Régionale de la Forêt et du Bois 2019-2029 (PRFB) avec un objectif de 5 000 hectares de plantation supplémentaires.
-
-Le dévellopement du modèle de plantation forestière nécessite un état des lieux des plantations actuelles de l'ONF en Guyane.
-Le derniers rapport de suivi fait le bilan de XX parcelles expérimentales pour XX espèces avec un recul de XX années pour certaines d'entre elles (Nicolini, 2023).
-L'édition d'un nouvel article est motivé par la nécessité de mettre à jour la base de données avec un nouvel inventaire et de synthétiser l’ensemble des données afin d'émettre des recommandations sur les essences à développer en plantation de Bois d’œuvre.
-
-## Objectifs
-
-1.  Comparer les performances des essences
-
-2.  Adapter le choix des essences aux sites (sol, précipitations, FWI)
-
-3.  Tester des scénarios de gestion (densité de plantation, plantation multispecifiques, modalités de préparation de la parcelle, fréquence d'entretient)
-
-# Matériel et méthode {#markdown}
-
-## Importation des données
+# Data Importation
 
 ```{r}
 #| echo: false
@@ -243,39 +212,62 @@ str(Inv_complet)
 
 ```
 
-## Modèle de croissance et d'accroissement
+# Data Exploration
 
-Un **modèle de croissance forestier** est un outil mathématique qui permet de prédire l’évolution d’un arbre ou d’un peuplement au cours du temps (source).
-On peut donc estimer l'évolution de la croissance en diamètre, en hauteur, ou en volume du bois à partir de **mesures dendrométriques**, de **variables écologiques** et du **scénario de gestion**.
-
-**Modèle de** **Michaelis-Menten :**
-
-$$
-Y(t)=\frac{Y_{max}*t}{K_m+t}
-$$
-
-$Y(t)$ : La variable de croissance à modéliser en fonction du temps (Diamètre ou Hauteur),\
-$t$ : âge des arbres en année,\
-$Y_{max}$ : Valeur maximal théorique de Y (à estimer),\
-$K_m$ : constante de Michaelis (à estimer).
-
-**Linéarisation du modèle de Michaelis-Menten :**
-
-$$
-\frac{1}{Y(t)}=\frac{K_m+t}{Y_{max}*t}=\left(\frac{K_m}{V_{max}} \right) \frac{1}{t}+\frac{1}{V_{max}}
-$$
-
-On peut donc appliquer un model linéaire de forme y=ax+b avec le changement de variable suivant :
-
-$y=\frac{1}{Y(t)};a=\frac{K_m}{V_{max}};x=\frac{1}{t};b=\frac{1}{V_{max}}$
-
-d'ou on déduit le paramètre de michaelis menten $V_{max}=\frac{1}{b}$ et $K_m=a*V_{max}$
-
-### Accroissement en Diamètre (linéarisé)
+## Table of plantations
 
 ```{r}
+#| echo: false
+
+# ---- Mat&Meth : Summary of tree inventories (Date and number of individuals) ----
+
 # ---- Selection of species ----
-select_species <- Inv_complet[Inv_complet$Nom_Vernaculaire %in% c("angelique","bagasse","yayamadou montagne","kopi kwali"),]
+select_species <- Inv_complet[Inv_complet$Nom_Vernaculaire %in% c("angelique","bagasse","yayamadou marecage"),]
+
+# Count table on plantations and species
+df_sp_plantation <- as.data.frame(table(select_species[c("Libelle_Plantation", "Nom_Vernaculaire")]) %>% addmargins()) %>%
+  pivot_wider(names_from = Nom_Vernaculaire, values_from = Freq)
+
+# Extract Year for each plantation
+df_year_plantation <- select_species %>% 
+  group_by(Libelle_Plantation) %>% # for each plantation
+  arrange(Age_Plantation_annee) %>% # arrange dates
+  slice_head(n = 1) %>% # keep the oldest date possible
+  ungroup() %>% # enable selection
+  select(Libelle_Plantation,Date_Intervention,Age_Plantation_annee) %>% # remove useless informations
+  filter(!is.na(Libelle_Plantation)) %>% # Removes zeros counts
+  mutate(Year_of_plantation = as.integer(substr(Date_Intervention, 1, 4))) %>% # Extract the year
+  select(-Date_Intervention) %>% # Date become useless 
+  group_by(Libelle_Plantation) %>% # keep the minimal year for each plantation
+  mutate(Year_of_plantation = min(Year_of_plantation)) %>%
+  ungroup() %>% # enable selection
+  mutate(Year_of_plantation = Year_of_plantation - Age_Plantation_annee) %>% # Correction of plantation years with age of tree on first inventory
+  select(-Age_Plantation_annee) %>%
+  mutate(Age_of_trees = 2025 - Year_of_plantation) # Add trees age
+
+# Join count and years
+df_summary_plantation <- left_join(df_sp_plantation,df_year_plantation,by="Libelle_Plantation") %>%
+  mutate(Plantation = substr(Libelle_Plantation, 1, 3)) %>% # divide Libelle_Plantation
+  mutate(Subplot = substr(Libelle_Plantation, 4,nchar(Libelle_Plantation)))
+
+# Nom complet des site de plantation
+df_name_plantation <- data.frame(
+  "Libelle_simplified" = c("RIS","TON","MDF","CHR","KAW","TOUL","CAC","PAR"),
+  "Name" = c("","Tonnegrande","MDF","Christine","Kaw","","","Paracou")
+)
+
+# New order of colonnes and rows
+df_summary_plantation <- df_summary_plantation[, c("Plantation","Subplot","Year_of_plantation","Age_of_trees", "angelique","bagasse","yayamadou marecage")]  %>%
+  arrange(Year_of_plantation)
+
+# Afficher le tableau final
+print(df_summary_plantation)
+```
+
+## DBH (exploration)
+
+```{r}
+#| echo: false
 
 # ---- Selection of columns ----
 select_col_sp <- data.frame(
@@ -283,269 +275,103 @@ select_col_sp <- data.frame(
   "diam" = select_species$DBHCorr,
   "Htot" = select_species$Hauteur_Totale,
   "essence" = as.factor(select_species$Nom_Vernaculaire), # as factor
-  "age" = select_species$Age_Plantation_annee, # converted in year
-  "site" = as.factor(select_species$Libelle_Plantation)
-) 
+  "age" = as.factor(select_species$Age_Plantation_annee), # converted in year
+  "site" = as.factor(select_species$Libelle_Plantation),
+  "etat" = select_species$Etat_Sanitaire
+) %>% filter(!is.na(site)) %>%
+  filter(etat != 5)
 
-# ---- Linearisation ----
-select_col_sp <- select_col_sp%>%
-  mutate(across(everything(), ~ ifelse(. == 0, 0.1, .))) %>%
-  mutate(inverted_diam = 1/diam) %>%
-  mutate(inverted_Htot = 1/Htot) %>%
-  mutate(inverted_age = 1/age)
-
-# ---- Linear model ----
-mod_diam <- lm(inverted_diam ~ inverted_age, data = select_col_sp)
-
-# Coefficients du modèle linéaire
-coefficients <- coef(mod_diam)
-b <- coefficients[1]  # ordonnée à l'origine (1/Vmax)
-a <- coefficients[2]  # pente (Km/Vmax)
-
-# Calculer Vmax et Km
-Vmax <- 1 / b
-Km <- a * Vmax
-
-# ---- Prediction ----
-newdata <- expand.grid(
-  new_age = seq(min(select_col_sp$age), max(select_col_sp$age), length.out = 20),
-  essence = unique(select_col_sp$essence)
-)
-pred_diam <- (Vmax * newdata$new_age) / (Km + newdata$new_age)
-newdata <- cbind(newdata, pred_diam)
-
-# ---- Visualisation ----
-ggplot(newdata, aes(inverted_age, inverted_diam, color = essence)) +
-  geom_line(size = 1) +
-  #geom_ribbon(aes(ymin = Q2.5, ymax = Q97.5, fill = essence), alpha = 0.2) +
-  geom_point(data = select_col_sp, aes(x = inverted_age, y = inverted_diam, color = essence), size = 1) +
-  theme_minimal() #+
-  #labs(y = "Estimate diameter", x = "Age (in years)", title = "Michaelis–Menten model by essence fitted with Bayesian method")
-
-```
-
-### Accroissement en Diamètre (Bayesien)
-
-```{r}
-#| label: fig-diam-real
-#| fig-cap: Modèles de croissance en diamètre avec données réelles (23 essences)
-#| echo: false
-
-# -------------------- BAYESIAN MODEL --------------------
-
-# ---- Selection of data to modelise ----
-Obs_select <- data.frame(
-  "arbre" = Inv_complet$Code_Arbre,
-  "diam" = Inv_complet$DBHCorr,
-  "Htot" = Inv_complet$Hauteur_Totale,
-  "essence" = as.factor(Inv_complet$Nom_Vernaculaire), # as factor
-  "age" = Inv_complet$Age_Plantation_annee, # converted in year
-  "site" = as.factor(Inv_complet$Libelle_Plantation)
-)
-
-# ---- Select species ----
-Obs_select <- Obs_select[Obs_select$essence %in% c("angelique","bagasse","yayamadou montagne","kopi kwali"),]
-# remove unused factor levels
-Obs_select$essence <- droplevels(Obs_select$essence)
-Obs_select$site <- droplevels(Obs_select$site)
-
-# ____ Michaelis-Menten Model by species with Bayesian methode (5 Steps) ____
-
-# ---- Step 1 – Defining the base of Michaelis–Menten model ----
-form_mm <- bf(
-  diam ~ (Ymax * age) / (Km + age), # Model of Mickaelis-Menten for the diameter
-  Ymax ~ 1 + essence + (1 | site),   # hierachical effect of specie and tree
-  Km   ~ 1 + essence + (1 | site),
-  nl = TRUE
-)
-
-# ---- Step 2 – Defining reasonable priors ----
-# Michaelis–Menten parameters are alway positive, distribution are troncated (lb=0).
-priors_mm <- c(
-  # Priors sur les paramètres non linéaires (intercepts)
-  prior(normal(0, 100), lb = 0, nlpar = "Ymax", class = "b"),
-  prior(normal(0, 100), lb = 0, nlpar = "Km",   class = "b"),
-  
-  # Priors sur l'effet aléatoire site
-  prior(normal(0, 100), lb = 0, nlpar = "Ymax", class = "sd", group = "site"),
-  prior(normal(0, 100), lb = 0, nlpar = "Km",   class = "sd", group = "site"),
-  
-  # Prior sur sigma
-  prior(normal(0, 100), class = "sigma")
-)
-
-# ---- Step 3 – Ajusting the model ----
-mod_mm_bayes <- brm(
-  data = Obs_select,   # Data
-  formula = form_mm, # Defined model
-  prior = priors_mm, # Defined priors
-  control = list(adapt_delta = 0.95, max_treedepth = 12), # other bayesian parameters
-  iter = 2000, chains = 4, cores = 12,
-  seed = 123
-)
-
-# ---- Step 4 – Verify and summarise ----
-summary(mod_mm_bayes)
-plot(mod_mm_bayes)
-pp_check(mod_mm_bayes)
-# Effects by specie and individuals
-coef(mod_mm_bayes)
-ranef(mod_mm_bayes)
-
-# ---- Step 5 – Visualization of curves by specie ----
-
-newdata <- expand.grid(
-  age = seq(min(Obs_select$age), max(Obs_select$age), length.out = 20),
-  essence = unique(Obs_select$essence)
-)
-# Prédictions avec seulement les effets fixes
-preds <- fitted(mod_mm_bayes, newdata = newdata, re.form = ~ essence)
-newdata <- cbind(newdata, preds)
-
-ggplot(newdata, aes(age, Estimate, color = essence)) +
-  geom_line(size = 1) +
-  geom_ribbon(aes(ymin = Q2.5, ymax = Q97.5, fill = essence), alpha = 0.2) +
-  geom_point(data = Obs_select, aes(x = age, y = diam, color = essence), size = 1) +
-  theme_minimal() +
-  labs(y = "Estimate diameter", x = "Age (in years)", title = "Michaelis–Menten model by essence fitted with Bayesian method")
-
-```
-
-### Croissance en hauteur
-
-```{r}
-#| label: fig-haut-real
-#| fig-cap: Modèles de croissance en hauteur avec données réelles (23 essences)
-#| echo: false
-
-# ---- Retirer les NA dans la colonne Hauteur_Totale ----
-Inv_complet <- Inv_complet[!is.na(Inv_complet$Hauteur_Totale), ]
-
-# ---- Selection des Données de hauteur par essence ----
-Obs_haut <- data.frame(
-  "arbre" = Inv_complet$Code_Arbre,
-  "haut" = as.numeric(Inv_complet$Hauteur_Totale), # as num
-  "essence" = as.factor(Inv_complet$Nom_Vern), # as factor
-  "age" = Inv_complet$Age_Plantation_annee # converted in year
-)
-
-# ---- Modèles Mickaelis-Menten par essence ----
-mods_haut <- Obs_haut %>%
-  group_by(essence) %>%
-  group_map(~ tryCatch(
-    nls(haut ~ (Y_max * age) / (K_m + age), data = .x, start = list(A=22,k=0.05,m=1.2)),
-    error = function(e) NULL
-  ))
-names(mods_haut) <- unique(Obs_haut$essence)
-
-# ---- Prédictions hauteur ----
-ages_pred <- 0:60                       # vector of ages
-essence <- unique(Obs_haut$essence)     # vector of trees
-Pred_haut <- expand_grid(age = ages_pred, essence = essence) %>%      # dataframe of haut predicted
-  group_by(essence) %>%
-  mutate(haut = if (!is.null(mods_haut[[unique(essence)]]))
-           predict(mods_haut[[unique(essence)]], newdata = data.frame(age=age))
-         else NA)
-
-# ---- Graphique of data + prediction : total high ----
-ggplot() +
-  geom_point(data = Obs_haut_averaged, aes(x = age, y = haut, color = essence), size = 1) +
-  geom_line(data = Pred_haut, aes(x = age, y = haut, color = essence), linewidth = 1) +
-  theme_minimal() +
+# ---- angelique ----
+ggplot(data = select_col_sp[select_col_sp$essence=="angelique",], aes(x = age, y = diam, color = essence)) +
+  geom_boxplot() +
+  facet_wrap(~site, scales = "free_y") +
   labs(
-    x = "Âge (ans)",
-    y = "Hauteur (m)",
-    color = "Essence"
+    x = "Age (years)",
+    y = "DBH (cm)",
+    color = "Specie"
   ) +
+  scale_color_manual(values = c("angelique" = "#8B0000", "yayamadou marecage" = "#00008B", "bagasse" = "#006400")) +  # Définir des couleurs spécifiques
   theme(plot.title = element_text(face = "bold", size = 14))
-
 ```
-
-## Multiple linear model of Biomass Production Rate
-
-$$
-BPR_{i,s,a}=\beta_0+\beta_1 . DBH_{i,s,a}+\beta_2 .MAP_{a}+\beta_3.NCI_{i,s,a}+\beta_4.TWI_{i,s,a}+\lambda_s + \epsilon_{a,i}
-$$
-
-$BPR$ : Biomass production rate,\
-$DBH$ : diameter at breast heigth,\
-$MAP$ : Mean annual precipitation,\
-$NCI$ : Neighboors competition indice,\
-$TWI$ : Topographic water index,\
-$\lambda_s$ : differential effect of specie,\
-$\epsilon_{a,i}$ : the residual between data and the model\
-Index : ( $i$ : individual, $s$ : specie, $a$ : age)
-
-## Survie
 
 ```{r}
-# ---- Selection of Data for NCI calculation ----
-data_NCI <- data.frame(
-  "arbre" = Inv_complet$Code_Arbre,
-  "DBHCorr" = Inv_complet$DBHCorr,
-  "essence" = as.factor(Inv_complet$Nom_Vern), # as factor
-  "age" = Inv_complet$Age_Plantation_annee, # converted in year
-  "Xutm" = Inv_complet$X_utm,
-  "Yutm" = Inv_complet$Y_utm
-)
+#| echo: false
 
-# ---- Sous écantillonage pour test ----
-data_NCI <- data_NCI[data_NCI$essence %in% c("angelique"),]
-
-# #Calcul du NCI
-# data_NCI <- data_NCI |> # data = jeu de donnée initial
-#   filter(age == 15,CodeAlive=TRUE) #|> #Filtre sur l'année pour laquelle vous voulez calculer le NCI (si plusieurs année il faudra faire un groupe by année et calculer la moyenne dans la boucle principale)
-#   #select(Plot.x,idTree,Xutm,Yutm,CensusYear,Circ,POM) # Sélection des variables d'intérêt
-
-
-# data_NCI <- data_NCI |> #Correction du diamètre de la même manière que je vous avais déjà montré si c'est déja fait pas besoin de ce code)
-#   mutate(DBH = Circ/pi) |>
-#   mutate(Taper_parameter = 0.156 - 0.023*log(DBH) - 0.021*log(POM/100)) |>
-#   mutate(DBHCorr = DBH/(exp(- Taper_parameter*((POM-130)/100)))) |>
-#   select(-Taper_parameter)
-
-x = c() #Initialisation du vecteur nul qui stockera les NCI calculés
-for (ind in 1:nrow(data_NCI)){ #On parcours chaque arbre
-  NC <- data_NCI |>
-    mutate(dij = sqrt((data_NCI$Xutm[ind] - Xutm)^2+(data_NCI$Yutm[ind] - Yutm)^2)) #Création d'un champ distance à l'arbre focal (ind) dans le tableau NC 
-  NCI = sum(NC$DBHCorr[which(NC$dij < 20)]*NC$DBHCorr[which(NC$dij < 20)]*exp(-0.25*NC$dij[which(NC$dij < 20)])) - #Calcul du NCI en prenant uniquement les arbres à moins de 20 m de l'arbre focal
-    NC$DBHCorr[ind]*NC$DBHCorr[ind]*exp(-0.25*NC$dij[ind]) #On soustrait le NCI calculé pour notre arbre focal (il n'exerce pas de compétition sur lui même)
-  x <- c(x,NCI) # Stock du NCI calculé
-}
-NCI <- cbind(data_NCI,x) |> # On récupère le vecteur comprenant tous les NCI dans notre jeu de donné et on convertit en m² (valeur en cm² initialement et ça fais des gros chiffres)
-  rename(NCI = x) |> 
-  mutate(NCI = NCI/10000) |> 
-  select(arbre,NCI)
-
-
-##### Ensuite on va corriger l'effet bordure des arbres ######
-geometree <- epure_data_sf |> #Ici epure_data_sf c'est le jeu de donné qui contient uniquement nos arbres dont on regarde la croissance (Pour le NCI on regardait tous les arbres vivants à l'année cible)
-  select(arbre,geometry) # on extrait la géométrie et idtree -> geometree (c'est hilarant)
-
-NCICorr <- left_join(geometree,NCI,by="idTree") # On ajoute la geometry au NCI
-
-
-NCICorr <- NCICorr |> 
-  mutate(Area_intersect = st_area(st_intersection(st_buffer(intersect_LG_placette$geometry,dist = 20),placette))) |> #Ici on crée un champ qui calcul la surface d'intersection entre un buffer de 20m de rayon autour de l'arbre focal et notre placette d'étude
-  drop_units() |> 
-  mutate(NCIcorr = if_else(Area_intersect==400*pi, NCI,NCI*400*pi/Area_intersect)) |> # Si la surface d'intersection est égale à 400pi(= un cercle de 20 m de rayon) alors on conserve le NCI (pas d'effet bordure)
-                                                                                      # Mais si ce n'est pas le cas ça veut dire qu'une partie du cercle est en dehors de la placette et donc qu'on a pas l'info de la compétition des arbres là
-                                                                                      #Ducoup  déduit le NCI des arbres de bordure proportionellement, c'est une estimation
-  select(-NCI,-Area_intersect,-geometry) |> 
-  st_drop_geometry()
-#Et voila vous avez votre NCI corriger pour vos arbres d'intérêt
+# ---- bagasse ----
+ggplot(data = select_col_sp[select_col_sp$essence=="bagasse",], aes(x = age, y = diam, color = essence)) +
+  geom_boxplot() +
+  facet_wrap(~site, scales = "free_y") +
+  labs(
+    x = "Age (years)",
+    y = "DBH (cm)",
+    color = "Specie"
+  ) +
+  scale_color_manual(values = c("angelique" = "#8B0000", "yayamadou marecage" = "#00008B", "bagasse" = "#006400")) +  # Définir des couleurs spécifiques
+  theme(plot.title = element_text(face = "bold", size = 14))
 ```
 
-Un autre point important en sylviculture est l'estimation de la **rotation optimale**, c'est à dire l'âge idéal de coupe pour maximiser la valeur du Bois.
+```{r}
+#| echo: false
 
-# TODO :
+# ---- yayamadou marecage ----
+ggplot(data = select_col_sp[select_col_sp$essence=="yayamadou marecage",], aes(x = age, y = diam, color = essence)) +
+  geom_boxplot() +
+  facet_wrap(~site, scales = "free_y") +
+  labs(
+    x = "Age (years)",
+    y = "DBH (cm)",
+    color = "Specie"
+  ) +
+  scale_color_manual(values = c("angelique" = "#8B0000", "yayamadou marecage" = "#00008B", "bagasse" = "#006400")) +  # Définir des couleurs spécifiques
+  theme(plot.title = element_text(face = "bold", size = 14))
+```
 
-1.  Calcul la proba de survie
+## Total Heigth (exploration)
 
-2.  Calcul du NCI
+```{r}
+#| echo: false
 
-3.  Add surface of plots in the volume model
+# ---- angelique ----
+ggplot(data = select_col_sp[select_col_sp$essence=="angelique",], aes(x = age, y = Htot, color = essence)) +
+  geom_boxplot() +
+  facet_wrap(~site, scales = "free_y") +
+  labs(
+    x = "Age (years)",
+    y = "Total Height (cm)",
+    color = "Specie"
+  ) +
+  scale_color_manual(values = c("angelique" = "#8B0000", "yayamadou marecage" = "#00008B", "bagasse" = "#006400")) +  # Définir des couleurs spécifiques
+  theme(plot.title = element_text(face = "bold", size = 14))
+```
 
-4.  Add data from 2025
+```{r}
+#| echo: false
 
-5.  Tout traduire en Anglais
+# ---- bagasse ----
+ggplot(data = select_col_sp[select_col_sp$essence=="bagasse",], aes(x = age, y = Htot, color = essence)) +
+  geom_boxplot() +
+  facet_wrap(~site, scales = "free_y") +
+  labs(
+    x = "Age (years)",
+    y = "Total Height (cm)",
+    color = "Specie"
+  ) +
+  scale_color_manual(values = c("angelique" = "#8B0000", "yayamadou marecage" = "#00008B", "bagasse" = "#006400")) +  # Définir des couleurs spécifiques
+  theme(plot.title = element_text(face = "bold", size = 14))
+```
+
+```{r}
+#| echo: false
+
+# ---- yayamadou marecage ----
+ggplot(data = select_col_sp[select_col_sp$essence=="yayamadou marecage",], aes(x = age, y = Htot, color = essence)) +
+  geom_boxplot() +
+  facet_wrap(~site, scales = "free_y") +
+  labs(
+    x = "Age (years)",
+    y = "Total Height (cm)",
+    color = "Specie"
+  ) +
+  scale_color_manual(values = c("angelique" = "#8B0000", "yayamadou marecage" = "#00008B", "bagasse" = "#006400")) +  # Définir des couleurs spécifiques
+  theme(plot.title = element_text(face = "bold", size = 14))
+```
