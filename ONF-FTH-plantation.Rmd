@@ -224,7 +224,22 @@ str(Inv_complet)
 # ---- Selection of species ----
 select_species <- Inv_complet[Inv_complet$Nom_Vernaculaire %in% c("angelique","bagasse","yayamadou marecage"),]
 
-# Count table on plantations and species
+# ---- Selection of sites ----
+# Liste de combinaisons à exclure sous forme de vecteur (site, essence)
+excluded_combinations <- data.frame(
+  Nom_Vernaculaire = c("angelique", "angelique", "angelique", "angelique", "bagasse", "bagasse", "bagasse"),
+  Libelle_Plantation = c("CHR02_A", "KAW03_D", "MDF01_A", "MDF01_D", "CHR02_A", "KAW03_A", "PAR19_D")
+)
+# Créer directement la colonne combinée 'combination' avec paste()
+excluded_combinations$combination <- paste(excluded_combinations$Libelle_Plantation, excluded_combinations$Nom_Vernaculaire)
+# Filtrage des combinaisons à exclure
+select_species <- select_species %>%
+  mutate(combination = paste(Libelle_Plantation, Nom_Vernaculaire)) %>%  # Créer la colonne de combinaison
+  filter(!combination %in% excluded_combinations$combination)# %>%  # Exclure les combinaisons
+  select(-combination)
+
+
+# ---- Count table sites / species ----
 df_sp_plantation <- as.data.frame(table(select_species[c("Libelle_Plantation", "Nom_Vernaculaire")]) %>% addmargins()) %>%
   pivot_wider(names_from = Nom_Vernaculaire, values_from = Freq)
 
@@ -278,8 +293,8 @@ select_col_sp <- data.frame(
   "age" = as.factor(select_species$Age_Plantation_annee), # converted in year
   "site" = as.factor(select_species$Libelle_Plantation),
   "etat" = select_species$Etat_Sanitaire
-) %>% filter(!is.na(site)) %>%
-  filter(etat != 5)
+) %>% filter(!is.na(site)) %>% # remove NA site
+  filter(etat != 5) # remove dead trees
 
 # ---- angelique ----
 ggplot(data = select_col_sp[select_col_sp$essence=="angelique",], aes(x = age, y = diam, color = essence)) +
