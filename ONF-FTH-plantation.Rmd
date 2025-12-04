@@ -159,55 +159,36 @@ set.seed(973)
 library(tidyverse)
 library(brms)
 
+# ---- Historical data ----
 Inv_complet <- read.csv2("/home/jean/Bureau/projet-ONF-FTH/Data/Rozeen_30-10_DataPlantations_sansBR.csv", sep=";",dec = ",")
 
-# ---- Convertion de Age_Plantation en années ----
+# ---- Add Last data (2025) ---- TODO
+
+# ---- Age_Plantation : Convertion en années ----
 convert_annee <- data.frame(
   "Age_Plantation" = unique(Inv_complet$Age_Plantation),
   "Age_Plantation_annee" = c(35,0,0.5,1,1.5,2,3,5,8,9,14,7,36,46,3.5,4,6,10.5,2.5,0,34,20,40,0.25,15,0.75,0.917,1.083,1.5,10,0.583,23,7,41,13,4.5)
 )
 Inv_complet <- left_join(Inv_complet,convert_annee,by="Age_Plantation")
 
-# ---- Set Ht_mesure at 130 for those are set at 0 ----
+# ---- Ht_mesure : Set at 130 when == 0 ----
 Inv_complet <- Inv_complet %>%
   mutate(Ht_Mesure = ifelse(Ht_Mesure == 0, 130, Ht_Mesure))
 
-# ---- Correction des diametres à 130cm ----
+# ---- DBH : Correction for Ht_mesure != 130 ----
 Inv_complet <- Inv_complet |>
   mutate(DBH = round(Circonférence/pi),digits=2) |>
   mutate(POM = Ht_Mesure) |>
   mutate(Taper_parameter = 0.156 - 0.023*log(DBH) - 0.021*log(POM/100)) |>
   mutate(DBHCorr = DBH/(exp(- Taper_parameter*((POM-130)/100))))
 
-# ---- do DBHCorr = 0 if DBH = 0 ----
+# ---- DBHCorr = 0 if DBH = 0 ----
 Inv_complet <- Inv_complet %>%
   mutate(DBHCorr = ifelse(DBH == 0, 0, DBHCorr))
-
-# ---- Adding initial diameter and high for all trees ----
-tree_with_starting_point <- unique(Inv_complet[Inv_complet$Age_Plantation_annee==0,]$Code_Arbre)
-tree_no_starting_point <- unique(Inv_complet[Inv_complet$Code_Arbre %in% tree_with_starting_point,]$Code_Arbre)     
-# All trees
-Initial_state <- data.frame(                         # Inisialized
-  "Code_Arbre" = tree_no_starting_point,
-  "Age_Plantation_annee" = rep(0,length(tree_no_starting_point)),
-  "DBHCorr" = rep(0,length(tree_no_starting_point)),
-  "Hauteur_Totale" = rep(0,length(tree_no_starting_point))
-)
-# Make correspondance with Code_Essence, Nom_Vernaculaire, Famille, Genre, Espece
-ref_code_espece <- Inv_complet %>% distinct(Code_Arbre, .keep_all = TRUE)                                      # first make a reference
-ref_code_espece <- ref_code_espece |> select("Code_Arbre", "Nom_Vernaculaire", "Famille", "Genre", "Espece") # then select rows of interest
-Initial_state   <-  left_join(Initial_state, ref_code_espece, by="Code_Arbre")                               # Make the correspondance for each Code_Arbre
-
-# Finally Bind Initial_state to Inv_complet
-Inv_complet <- bind_rows(Inv_complet,Initial_state)
 
 # ---- as.factor for selected variables
 Inv_complet$Code_Essence <- as.factor(Inv_complet$Code_Essence)
 Inv_complet$Age_Plantation_annee <- as.factor(Inv_complet$Age_Plantation_annee)
-
-# ---- Add last data (2025) ---- TODO
-
-# ---- Check doublons age/arbre ---- TODO
 
 # ---- Result ----
 str(Inv_complet)
@@ -236,13 +217,18 @@ select_species <- select_species %>%
   filter(!combination %in% excluded_combinations$combination) %>%  # Exclure les combinaisons
   select(-combination)
 
+# ---- Split Libelle_Plantation ----
+select_species <- select_species %>%
+  mutate(Localisation = substr(Libelle_Plantation, 1, 3)) %>% # Split name
+  mutate(Plot = substr(Libelle_Plantation, 4,nchar(Libelle_Plantation))) # Split name
+
 # ---- Result ----
 select_species
 ```
 
 # Data Exploration
 
-## Table of plantations
+## Sample table and dates
 
 ```{r}
 #| echo: false
@@ -251,42 +237,41 @@ select_species
 
 # ---- Count table per sites and species ----
 df_sp_plantation <- select_species %>% 
-  select("Libelle_Plantation", "Nom_Vernaculaire") %>%
+  select("Localisation", "Nom_Vernaculaire") %>%
   table() %>% 
   addmargins() %>% 
   as.data.frame() %>%
   pivot_wider(names_from = Nom_Vernaculaire, values_from = Freq)
 
-# ---- Extract Year for each plantation ----
-df_year_plantation <- select_species %>% 
-  group_by(Libelle_Plantation) %>% # for each plantation
-  arrange(Age_Plantation_annee) %>% # arrange dates
-  slice_head(n = 1) %>% # keep the oldest date possible
-  ungroup() %>% # enable selection
-  select(Libelle_Plantation,Date_Intervention,Age_Plantation_annee) %>% # remove useless informations
-  filter(!is.na(Libelle_Plantation)) %>% # Removes zeros counts
+# ---- Extract Year for each subplots ----
+df_year_plantation <- select_species %>%
+  mutate(Age_Plantation_annee = as.numeric(Age_Plantation_annee)) %>% # Age in numeric
+  group_by(Localisation) %>%         # For each Plot-Subplot
+  arrange(Age_Plantation_annee) %>%        # arrange dates by Year trough inventories
+  slice_head(n = 1) %>%                    #!# keep the oldest date possible 
+  ungroup() %>%                            # Enable selection
+  select(Localisation,Date_Intervention,Age_Plantation_annee) %>% # Remove useless informations
+  filter(!is.na(Localisation)) %>%   # Remove NA Plot-Subplot
   mutate(Year_of_plantation = as.integer(substr(Date_Intervention, 1, 4))) %>% # Extract the year
-  select(-Date_Intervention) %>% # Date become useless 
-  group_by(Libelle_Plantation) %>% # keep the minimal year for each plantation
-  mutate(Year_of_plantation = min(Year_of_plantation)) %>%
-  ungroup() %>% # enable selection
+  select(-Date_Intervention) %>%           # Date become useless 
+  group_by(Localisation) %>%         # For each Plot-Subplot
+  mutate(Year_of_plantation = min(Year_of_plantation)) %>%    #!# keep the minimal year
+  ungroup() %>%                            # Enable selection
   mutate(Year_of_plantation = Year_of_plantation - Age_Plantation_annee) %>% # Correction of plantation years with age of tree on first inventory
-  select(-Age_Plantation_annee) %>%
+  select(-Age_Plantation_annee) %>% # Age become useless
   mutate(Age_of_trees = 2025 - Year_of_plantation) # Add trees age
 
-# ---- Join count and years ----
-df_summary_plantation <- left_join(df_sp_plantation,df_year_plantation,by="Libelle_Plantation") %>%
-  mutate(Plantation = substr(Libelle_Plantation, 1, 3)) %>% # divide Libelle_Plantation
-  mutate(Subplot = substr(Libelle_Plantation, 4,nchar(Libelle_Plantation)))
+# ---- Join count table and years df ----
+df_summary_plantation <- left_join(df_sp_plantation,df_year_plantation,by="Localisation")
 
 # # ---- Complete name of des site de plantations ---- TODO
 # df_name_plantation <- data.frame(
 #   "Libelle_simplified" = c("RIS","TON","MDF","CHR","KAW","TOUL","CAC","PAR"),
-#   "Name" = c("","Tonnegrande","MDF","Christine","Kaw","","","Paracou")
+#   "Name" = c("","Tonnegrande","MDF","Christine","Kaw","Toulouri","","Paracou")
 # )
 
 # ---- New order of colonnes and rows ----
-df_summary_plantation <- df_summary_plantation[, c("Plantation","Subplot","Year_of_plantation","Age_of_trees", "angelique","bagasse","yayamadou marecage")]  %>%
+df_summary_plantation <- df_summary_plantation[, c("Localisation","Year_of_plantation","Age_of_trees", "angelique","bagasse","yayamadou marecage")]  %>%
   arrange(Year_of_plantation)
 
 # ---- Result ----
@@ -305,7 +290,7 @@ select_col_sp <- data.frame(
   "Htot" = select_species$Hauteur_Totale,
   "essence" = as.factor(select_species$Nom_Vernaculaire), # as factor
   "age" = as.factor(select_species$Age_Plantation_annee), # converted in year
-  "site" = as.factor(select_species$Libelle_Plantation),
+  "site" = as.factor(select_species$Localisation),
   "etat" = select_species$Etat_Sanitaire
 ) %>% filter(!is.na(site)) %>% # remove NA site
   filter(etat != 5) # remove dead trees
@@ -320,6 +305,7 @@ ggplot(data = select_col_sp[select_col_sp$essence=="angelique",], aes(x = age, y
     color = "Specie"
   ) +
   scale_color_manual(values = c("angelique" = "#8B0000", "yayamadou marecage" = "#00008B", "bagasse" = "#006400")) +  # Définir des couleurs spécifiques
+  theme_minimal() +
   theme(plot.title = element_text(face = "bold", size = 14))
 ```
 
@@ -336,6 +322,7 @@ ggplot(data = select_col_sp[select_col_sp$essence=="bagasse",], aes(x = age, y =
     color = "Specie"
   ) +
   scale_color_manual(values = c("angelique" = "#8B0000", "yayamadou marecage" = "#00008B", "bagasse" = "#006400")) +  # Définir des couleurs spécifiques
+  theme_minimal() +
   theme(plot.title = element_text(face = "bold", size = 14))
 ```
 
@@ -352,6 +339,7 @@ ggplot(data = select_col_sp[select_col_sp$essence=="yayamadou marecage",], aes(x
     color = "Specie"
   ) +
   scale_color_manual(values = c("angelique" = "#8B0000", "yayamadou marecage" = "#00008B", "bagasse" = "#006400")) +  # Définir des couleurs spécifiques
+  theme_minimal() +
   theme(plot.title = element_text(face = "bold", size = 14))
 ```
 
@@ -370,6 +358,7 @@ ggplot(data = select_col_sp[select_col_sp$essence=="angelique",], aes(x = age, y
     color = "Specie"
   ) +
   scale_color_manual(values = c("angelique" = "#8B0000", "yayamadou marecage" = "#00008B", "bagasse" = "#006400")) +  # Définir des couleurs spécifiques
+  theme_minimal() +
   theme(plot.title = element_text(face = "bold", size = 14))
 ```
 
@@ -386,6 +375,7 @@ ggplot(data = select_col_sp[select_col_sp$essence=="bagasse",], aes(x = age, y =
     color = "Specie"
   ) +
   scale_color_manual(values = c("angelique" = "#8B0000", "yayamadou marecage" = "#00008B", "bagasse" = "#006400")) +  # Définir des couleurs spécifiques
+  theme_minimal() +
   theme(plot.title = element_text(face = "bold", size = 14))
 ```
 
@@ -402,6 +392,7 @@ ggplot(data = select_col_sp[select_col_sp$essence=="yayamadou marecage",], aes(x
     color = "Specie"
   ) +
   scale_color_manual(values = c("angelique" = "#8B0000", "yayamadou marecage" = "#00008B", "bagasse" = "#006400")) +  # Définir des couleurs spécifiques
+  theme_minimal() +
   theme(plot.title = element_text(face = "bold", size = 14))
 ```
 
@@ -431,7 +422,7 @@ ggplot(select_species, aes(x = DBHCorr, y = Hauteur_Totale, color = Nom_Vernacul
 
 # ---- Filter ----
 filtered_select_species <- select_species %>% 
-  filter(!is.na(Libelle_Plantation)) %>% # remove NA site
+  filter(!is.na(Localisation)) %>% # remove NA site
   filter(Etat_Sanitaire != 5) %>% # remove dead trees
   filter(!is.na(DBHCorr)) %>% # remove NA from DBH
   filter(Hauteur_Totale>0) %>% # remove 0 from DBH
@@ -456,7 +447,8 @@ library(BIOMASS)
 # --- Add Wood Density and Biomass ----
 filtered_select_species <- filtered_select_species %>% 
   mutate(Wood_Density = getWoodDensity(Genre, Espece)$meanWD) %>% # Wood Density
-  mutate(AGB = computeAGB(D = DBHCorr, H = Hauteur_Totale, WD = Wood_Density)) # BIOMASS
+  mutate(AGB_ton = computeAGB(D = DBHCorr, H = Hauteur_Totale/100, WD = Wood_Density)) %>% # BIOMASS (ton)
+  mutate(AGB_kg = AGB_ton*1000)
 
 filtered_select_species # Result
 
@@ -471,15 +463,16 @@ filtered_select_species # Result
 df <- filtered_select_species[filtered_select_species$Nom_Vernaculaire=="angelique",]
 
 # ---- Plots ----
-ggplot(data = df, aes(x = Age_Plantation_annee, y = AGB, color = Nom_Vernaculaire)) +
+ggplot(data = df, aes(x = Age_Plantation_annee, y = AGB_kg, color = Nom_Vernaculaire)) +
   geom_boxplot() +
-  facet_wrap(~Libelle_Plantation, scales = "free_y") +
+  facet_wrap(~Localisation, scales = "free_y") +
   labs(
     x = "Age (years)",
-    y = "AGB (ton)",
+    y = "AGB (kg)",
     color = "Specie"
   ) +
   scale_color_manual(values = c("angelique" = "#8B0000", "yayamadou marecage" = "#00008B", "bagasse" = "#006400")) +  # Définir des couleurs spécifiques
+  theme_minimal() +
   theme(plot.title = element_text(face = "bold", size = 14))
 ```
 
@@ -490,15 +483,16 @@ ggplot(data = df, aes(x = Age_Plantation_annee, y = AGB, color = Nom_Vernaculair
 df <- filtered_select_species[filtered_select_species$Nom_Vernaculaire=="bagasse",]
 
 # ---- Plots ----
-ggplot(data = df, aes(x = Age_Plantation_annee, y = AGB, color = Nom_Vernaculaire)) +
+ggplot(data = df, aes(x = Age_Plantation_annee, y = AGB_kg, color = Nom_Vernaculaire)) +
   geom_boxplot() +
-  facet_wrap(~Libelle_Plantation, scales = "free_y") +
+  facet_wrap(~Localisation, scales = "free_y") +
   labs(
     x = "Age (years)",
-    y = "AGB (ton)",
+    y = "AGB (kg)",
     color = "Specie"
   ) +
   scale_color_manual(values = c("angelique" = "#8B0000", "yayamadou marecage" = "#00008B", "bagasse" = "#006400")) +  # Définir des couleurs spécifiques
+  theme_minimal() +
   theme(plot.title = element_text(face = "bold", size = 14))
 ```
 
@@ -509,31 +503,124 @@ ggplot(data = df, aes(x = Age_Plantation_annee, y = AGB, color = Nom_Vernaculair
 df <- filtered_select_species[filtered_select_species$Nom_Vernaculaire=="yayamadou marecage",]
 
 # ---- Plots ----
-ggplot(data = df, aes(x = Age_Plantation_annee, y = AGB, color = Nom_Vernaculaire)) +
+ggplot(data = df, aes(x = Age_Plantation_annee, y = AGB_kg, color = Nom_Vernaculaire)) +
   geom_boxplot() +
-  facet_wrap(~Libelle_Plantation, scales = "free_y") +
+  facet_wrap(~Localisation, scales = "free_y") +
   labs(
     x = "Age (years)",
-    y = "AGB (ton)",
+    y = "AGB (kg)",
     color = "Specie"
   ) +
   scale_color_manual(values = c("angelique" = "#8B0000", "yayamadou marecage" = "#00008B", "bagasse" = "#006400")) +  # Définir des couleurs spécifiques
+  theme_minimal() +
   theme(plot.title = element_text(face = "bold", size = 14))
 ```
 
 # Biomass accumulation rate
 
-## Calculation
+## BAR per tree
 
 ```{r}
+# Calculer la vitesse d'accumulation de biomasse sur chaque arbre et prendre la dernière valeur pour chaque arbre
 
 filtered_select_species <- filtered_select_species %>%
-  group_by(Code_Arbre) %>%
-  summurise()
+  mutate(Age_Plantation_annee = as.numeric(Age_Plantation_annee)) %>% # Age as.numeric
+  mutate(BAR = AGB_kg / Age_Plantation_annee) %>%
+  mutate(Age_Plantation_annee = as.factor(Age_Plantation_annee))
+
+# ---- Selection ----
+df <- filtered_select_species[filtered_select_species$Nom_Vernaculaire=="bagasse",]
+
+# ---- Plots ----
+ggplot(data = df, aes(x = Age_Plantation_annee, y = BAR, color = Nom_Vernaculaire)) +
+  geom_boxplot() +
+  facet_wrap(~Localisation, scales = "free_y") +
+  labs(
+    x = "Age (years)",
+    y = "BAR (kg/year)",
+    color = "Specie"
+  ) +
+  scale_color_manual(values = c("angelique" = "#8B0000", "yayamadou marecage" = "#00008B", "bagasse" = "#006400")) +  # Définir des couleurs spécifiques
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold", size = 14))
 
 
 ```
 
-## Plot
+## BAR per localisation
+
+```{r}
+
+# ---- Arrange data for plot ----
+df_arrange <- filtered_select_species %>%
+  group_by(Localisation, Nom_Vernaculaire) %>%
+  mutate(
+    mean_BAR = mean(BAR, na.rm = TRUE),
+    Combinaison = paste(Localisation, Nom_Vernaculaire, sep = " - ")
+    ) %>%
+  ungroup() %>%
+  arrange(Nom_Vernaculaire, mean_BAR) %>%
+  mutate(order_sp = as.factor(dense_rank(Nom_Vernaculaire))) %>%
+  group_by(Nom_Vernaculaire) %>%
+  mutate(order_BAR = as.factor(dense_rank(mean_BAR))) %>%
+  ungroup() %>%
+  # Appliquer un rang dense pour donner un ordre (1,1,2,3,3,3...)
+  mutate(order_comb = as.factor(paste(order_sp, order_BAR, sep = "")))
+  
+df_summary_biomass <- df_arrange %>% group_by(Combinaison) %>% summarise(mean_BAR = mean(BAR),order_comb = unique(order_comb),Localisation=unique(Localisation)) %>% arrange(order_comb)
+
+# ---- Plots ----
+ggplot(data = df_arrange, aes(x = order_comb, y = BAR, color = Nom_Vernaculaire)) +
+  geom_boxplot(outlier.shape = 1, outlier.size = 1) + # Add box
+  # Add red point for mean values
+  stat_summary(data = df_summary_biomass, aes(x = order_comb, y = mean_BAR), geom = "point", shape = 18, size = 4, color = "red") +
+  # geom_point(aes(x = df_summary_biomass$order_comb, y = mean_val), color = "red", size = 4, shape = 18) +
+  labs( # Axis labels
+    x = "Localisation",
+    y = expression("Mean " ~ frac(delta*AGB, delta*dt) ~ "(kg.year⁻¹.tree⁻¹)"),
+    color = "Specie"
+  ) +
+  scale_color_manual(values = c("angelique" = "#8B0000", "yayamadou marecage" = "#00008B", "bagasse" = "#006400")) +  # Définir des couleurs spécifiques
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14)  # Verticale orientation of x labels
+    ) +  
+  coord_cartesian(ylim = c(0, 40)) +
+  scale_x_discrete(labels = df_summary_biomass$Localisation)
+
+
+```
 
 ## 2-way ANOVA model
+
+```{r}
+
+M0 <- lm(BAR ~ 1, data = df_arrange)
+M1 <- lm(BAR ~ Nom_Vernaculaire, data = df_arrange)
+M2 <- lm(BAR ~ Localisation, data = df_arrange)
+M12 <- lm(BAR ~ Nom_Vernaculaire + Localisation, data = df_arrange)
+
+aov(M0)
+aov(M1)
+aov(M2)
+aov(M12)
+
+anova(M0,M12) # There is an effect of Specie or Localisation in the heart rate
+anova(M2,M12) # The effect of localisation is significant '*'
+
+# I can also see the result of the full model at the end of the summary
+summary(M12)
+# Yayamadou marecage is not significatively different than angelique for 
+```
+
+# TODO
+
+-   Remove site filtration
+
+-   BAR compute by linear slope (Anova/linear : don't forget interactions)
+
+-   Try keep only last alive trees
+
+-   Section on Proba survie / BAR
+
+-   
