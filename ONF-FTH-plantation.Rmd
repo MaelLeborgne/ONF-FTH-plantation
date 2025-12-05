@@ -157,7 +157,8 @@ set.seed(973)
 ```{r}
 #| echo: false
 library(tidyverse)
-library(brms)
+library(ggplot2)
+library(BIOMASS)
 
 # ---- Historical data ----
 Inv_complet <- read.csv2("/home/jean/Bureau/projet-ONF-FTH/Data/Rozeen_30-10_DataPlantations_sansBR.csv", sep=";",dec = ",")
@@ -201,29 +202,31 @@ str(Inv_complet)
 ```{r}
 
 # ---- Selection of species ----
-select_species <- Inv_complet[Inv_complet$Nom_Vernaculaire %in% c("angelique","bagasse","yayamadou marecage"),]
+data_selection <- Inv_complet[Inv_complet$Nom_Vernaculaire %in% c("angelique","bagasse","yayamadou marecage"),]
 
-# ---- Selection of sites ----
-# Liste de combinaisons à exclure sous forme de vecteur (site, essence)
-excluded_combinations <- data.frame(
-  Nom_Vernaculaire = c("angelique", "angelique", "angelique", "angelique", "bagasse", "bagasse", "bagasse"),
-  Libelle_Plantation = c("CHR02_A", "KAW03_D", "MDF01_A", "MDF01_D", "CHR02_A", "KAW03_A", "PAR19_D")
-)
-# Créer directement la colonne combinée 'combination' avec paste()
-excluded_combinations$combination <- paste(excluded_combinations$Libelle_Plantation, excluded_combinations$Nom_Vernaculaire)
-# Filtrage des combinaisons à exclure
-select_species <- select_species %>%
-  mutate(combination = paste(Libelle_Plantation, Nom_Vernaculaire)) %>%  # Créer la colonne de combinaison
-  filter(!combination %in% excluded_combinations$combination) %>%  # Exclure les combinaisons
-  select(-combination)
+# # ---- Selection of sites ----
+# # Liste de combinaisons à exclure sous forme de vecteur (site, essence)
+# excluded_combinations <- data.frame(
+#   Nom_Vernaculaire = c("angelique", "angelique", "angelique", "angelique", "bagasse", "bagasse", "bagasse"),
+#   Libelle_Plantation = c("CHR02_A", "KAW03_D", "MDF01_A", "MDF01_D", "CHR02_A", "KAW03_A", "PAR19_D")
+# )
+# 
+# # Créer directement la colonne combinée 'combination' avec paste()
+# excluded_combinations$combination <- paste(excluded_combinations$Libelle_Plantation, excluded_combinations$Nom_Vernaculaire)
+# 
+# # Filtrage des combinaisons à exclure
+# data_selection <- data_selection %>%
+#   mutate(combination = paste(Libelle_Plantation, Nom_Vernaculaire)) %>%  # Créer la colonne de combinaison
+#   filter(!combination %in% excluded_combinations$combination) %>%  # Exclure les combinaisons
+#   select(-combination)
 
 # ---- Split Libelle_Plantation ----
-select_species <- select_species %>%
+data_selection <- data_selection %>%
   mutate(Localisation = substr(Libelle_Plantation, 1, 3)) %>% # Split name
   mutate(Plot = substr(Libelle_Plantation, 4,nchar(Libelle_Plantation))) # Split name
 
 # ---- Result ----
-select_species
+data_selection
 ```
 
 # Data Exploration
@@ -236,7 +239,7 @@ select_species
 # ---- Mat&Meth : Summary of tree inventories (Date and number of individuals) ----
 
 # ---- Count table per sites and species ----
-df_sp_plantation <- select_species %>% 
+df_sp_plantation <- data_selection %>% 
   select("Localisation", "Nom_Vernaculaire") %>%
   table() %>% 
   addmargins() %>% 
@@ -244,7 +247,7 @@ df_sp_plantation <- select_species %>%
   pivot_wider(names_from = Nom_Vernaculaire, values_from = Freq)
 
 # ---- Extract Year for each subplots ----
-df_year_plantation <- select_species %>%
+df_year_plantation <- data_selection %>%
   mutate(Age_Plantation_annee = as.numeric(Age_Plantation_annee)) %>% # Age in numeric
   group_by(Localisation) %>%         # For each Plot-Subplot
   arrange(Age_Plantation_annee) %>%        # arrange dates by Year trough inventories
@@ -285,13 +288,13 @@ print(df_summary_plantation)
 
 # ---- Selection of columns ----
 select_col_sp <- data.frame(
-  "arbre" = select_species$Code_Arbre,
-  "diam" = select_species$DBHCorr,
-  "Htot" = select_species$Hauteur_Totale,
-  "essence" = as.factor(select_species$Nom_Vernaculaire), # as factor
-  "age" = as.factor(select_species$Age_Plantation_annee), # converted in year
-  "site" = as.factor(select_species$Localisation),
-  "etat" = select_species$Etat_Sanitaire
+  "arbre" = data_selection$Code_Arbre,
+  "diam" = data_selection$DBHCorr,
+  "Htot" = data_selection$Hauteur_Totale,
+  "essence" = as.factor(data_selection$Nom_Vernaculaire), # as factor
+  "age" = as.factor(data_selection$Age_Plantation_annee), # converted in year
+  "site" = as.factor(data_selection$Localisation),
+  "etat" = data_selection$Etat_Sanitaire
 ) %>% filter(!is.na(site)) %>% # remove NA site
   filter(etat != 5) # remove dead trees
 
@@ -405,7 +408,7 @@ ggplot(data = select_col_sp[select_col_sp$essence=="yayamadou marecage",], aes(x
 ```{r}
 
 # ---- PLOT ----
-ggplot(select_species, aes(x = DBHCorr, y = Hauteur_Totale, color = Nom_Vernaculaire)) +
+ggplot(data_selection, aes(x = DBHCorr, y = Hauteur_Totale, color = Nom_Vernaculaire)) +
   geom_point(size = 0.5) +  # Créer un nuage de points
   labs(title = "Hauteur Totale vs DBH Corrigé",
        x = "DBH Corrigé (cm)",
@@ -421,7 +424,7 @@ ggplot(select_species, aes(x = DBHCorr, y = Hauteur_Totale, color = Nom_Vernacul
 ```{r}
 
 # ---- Filter ----
-filtered_select_species <- select_species %>% 
+filtered_data_selection <- data_selection %>% 
   filter(!is.na(Localisation)) %>% # remove NA site
   filter(Etat_Sanitaire != 5) %>% # remove dead trees
   filter(!is.na(DBHCorr)) %>% # remove NA from DBH
@@ -429,7 +432,7 @@ filtered_select_species <- select_species %>%
   filter(DBH>0) # remove 0 from Htot
 
 # ---- PLOT ----
-ggplot(filtered_select_species, aes(x = DBHCorr, y = Hauteur_Totale, color = Nom_Vernaculaire)) +
+ggplot(filtered_data_selection, aes(x = DBHCorr, y = Hauteur_Totale, color = Nom_Vernaculaire)) +
   geom_point(size = 0.5) +  # Créer un nuage de points
   labs(title = "Hauteur Totale vs DBH Corrigé",
        x = "DBH Corrigé (cm)",
@@ -439,18 +442,20 @@ ggplot(filtered_select_species, aes(x = DBHCorr, y = Hauteur_Totale, color = Nom
         legend.text = element_text(size = 10))  # Personnaliser la légende
 ```
 
-## **Calculation**
+## Density and Biomass
 
 ```{r}
 library(BIOMASS)
 
-# --- Add Wood Density and Biomass ----
-filtered_select_species <- filtered_select_species %>% 
+# --- For each row of inventory : Add Wood Density and Biomass ----
+filtered_data_selection <- filtered_data_selection %>% 
   mutate(Wood_Density = getWoodDensity(Genre, Espece)$meanWD) %>% # Wood Density
-  mutate(AGB_ton = computeAGB(D = DBHCorr, H = Hauteur_Totale/100, WD = Wood_Density)) %>% # BIOMASS (ton)
-  mutate(AGB_kg = AGB_ton*1000)
+  # BIOMASS estimation (ton)
+  mutate(AGB_ton = computeAGB(D = DBHCorr, H = Hauteur_Totale/100, WD = Wood_Density)) %>%
+  mutate(AGB_kg = AGB_ton*1000) # convertion in kg
 
-filtered_select_species # Result
+ # ---- Result ----
+filtered_data_selection
 
 ```
 
@@ -460,7 +465,7 @@ filtered_select_species # Result
 
 ```{r}
 # ---- Selection ----
-df <- filtered_select_species[filtered_select_species$Nom_Vernaculaire=="angelique",]
+df <- filtered_data_selection[filtered_data_selection$Nom_Vernaculaire=="angelique",]
 
 # ---- Plots ----
 ggplot(data = df, aes(x = Age_Plantation_annee, y = AGB_kg, color = Nom_Vernaculaire)) +
@@ -480,7 +485,7 @@ ggplot(data = df, aes(x = Age_Plantation_annee, y = AGB_kg, color = Nom_Vernacul
 
 ```{r}
 # ---- Selection ----
-df <- filtered_select_species[filtered_select_species$Nom_Vernaculaire=="bagasse",]
+df <- filtered_data_selection[filtered_data_selection$Nom_Vernaculaire=="bagasse",]
 
 # ---- Plots ----
 ggplot(data = df, aes(x = Age_Plantation_annee, y = AGB_kg, color = Nom_Vernaculaire)) +
@@ -500,7 +505,7 @@ ggplot(data = df, aes(x = Age_Plantation_annee, y = AGB_kg, color = Nom_Vernacul
 
 ```{r}
 # ---- Selection ----
-df <- filtered_select_species[filtered_select_species$Nom_Vernaculaire=="yayamadou marecage",]
+df <- filtered_data_selection[filtered_data_selection$Nom_Vernaculaire=="yayamadou marecage",]
 
 # ---- Plots ----
 ggplot(data = df, aes(x = Age_Plantation_annee, y = AGB_kg, color = Nom_Vernaculaire)) +
@@ -521,15 +526,16 @@ ggplot(data = df, aes(x = Age_Plantation_annee, y = AGB_kg, color = Nom_Vernacul
 ## BAR per tree
 
 ```{r}
-# Calculer la vitesse d'accumulation de biomasse sur chaque arbre et prendre la dernière valeur pour chaque arbre
 
-filtered_select_species <- filtered_select_species %>%
+# ---- Calculation of intantateous rate ---
+
+filtered_data_selection <- filtered_data_selection %>%
   mutate(Age_Plantation_annee = as.numeric(Age_Plantation_annee)) %>% # Age as.numeric
-  mutate(BAR = AGB_kg / Age_Plantation_annee) %>%
-  mutate(Age_Plantation_annee = as.factor(Age_Plantation_annee))
+  mutate(BAR = AGB_kg / Age_Plantation_annee) %>% # Calcul of rate
+  mutate(Age_Plantation_annee = as.factor(Age_Plantation_annee)) # Age as.factor
 
 # ---- Selection ----
-df <- filtered_select_species[filtered_select_species$Nom_Vernaculaire=="bagasse",]
+df <- filtered_data_selection[filtered_data_selection$Nom_Vernaculaire=="bagasse",]
 
 # ---- Plots ----
 ggplot(data = df, aes(x = Age_Plantation_annee, y = BAR, color = Nom_Vernaculaire)) +
@@ -547,34 +553,49 @@ ggplot(data = df, aes(x = Age_Plantation_annee, y = BAR, color = Nom_Vernaculair
 
 ```
 
-## BAR per localisation
+## Compare mean_BAR per localisation
 
 ```{r}
 
-# ---- Arrange data for plot ----
-df_arrange <- filtered_select_species %>%
+# ---- Add mean Biomass accumulation rate ----
+filtered_data_selection <- filtered_data_selection %>%
   group_by(Localisation, Nom_Vernaculaire) %>%
   mutate(
     mean_BAR = mean(BAR, na.rm = TRUE),
     Combinaison = paste(Localisation, Nom_Vernaculaire, sep = " - ")
     ) %>%
-  ungroup() %>%
+  ungroup()
+  
+# ---- Arrange data by specie and increasing mean_BAR ----
+filtered_data_selection <- filtered_data_selection %>%
   arrange(Nom_Vernaculaire, mean_BAR) %>%
   mutate(order_sp = as.factor(dense_rank(Nom_Vernaculaire))) %>%
   group_by(Nom_Vernaculaire) %>%
   mutate(order_BAR = as.factor(dense_rank(mean_BAR))) %>%
   ungroup() %>%
-  # Appliquer un rang dense pour donner un ordre (1,1,2,3,3,3...)
+  # ranking for ploting order (1,1,2,3,3,3...)
   mutate(order_comb = as.factor(paste(order_sp, order_BAR, sep = "")))
-  
-df_summary_biomass <- df_arrange %>% group_by(Combinaison) %>% summarise(mean_BAR = mean(BAR),order_comb = unique(order_comb),Localisation=unique(Localisation)) %>% arrange(order_comb)
 
-# ---- Plots ----
-ggplot(data = df_arrange, aes(x = order_comb, y = BAR, color = Nom_Vernaculaire)) +
+# ---- Summary of mean per Localisation ----
+df_summary_biomass <- filtered_data_selection %>% group_by(Combinaison) %>% summarise(mean_BAR = mean(BAR),order_comb = unique(order_comb),Localisation=unique(Localisation)) %>% arrange(order_comb)
+
+# ---- Test statistiques ----
+# Effectuer un test wilcoxon pairwise
+pairwise_res <- pairwise.wilcox.test(filtered_data_selection$BAR, filtered_data_selection$order_comb, p.adjust.method = "bonferroni")
+# Extraire la matrice des p-values ajustées
+p_values <- pairwise_res$p.value
+# Utiliser multcompLetters pour générer les lettres de comparaison
+library(multcompView)
+cld_res <- multcompLetters(p_values)  # ou ajuster en fonction des résultats spécifiques
+
+df_summary_biomass$letters <- c("a",as.vector(cld_res$Letters))
+
+
+# ---- Boxplot ----
+ggplot(data = filtered_data_selection, aes(x = order_comb, y = BAR, color = Nom_Vernaculaire)) +
   geom_boxplot(outlier.shape = 1, outlier.size = 1) + # Add box
   # Add red point for mean values
   stat_summary(data = df_summary_biomass, aes(x = order_comb, y = mean_BAR), geom = "point", shape = 18, size = 4, color = "red") +
-  # geom_point(aes(x = df_summary_biomass$order_comb, y = mean_val), color = "red", size = 4, shape = 18) +
   labs( # Axis labels
     x = "Localisation",
     y = expression("Mean " ~ frac(delta*AGB, delta*dt) ~ "(kg.year⁻¹.tree⁻¹)"),
@@ -586,8 +607,132 @@ ggplot(data = df_arrange, aes(x = order_comb, y = BAR, color = Nom_Vernaculaire)
     plot.title = element_text(face = "bold", size = 14)  # Verticale orientation of x labels
     ) +  
   coord_cartesian(ylim = c(0, 40)) +
-  scale_x_discrete(labels = df_summary_biomass$Localisation)
+  scale_x_discrete(labels = df_summary_biomass$Localisation)+
+  # Ajouter les lettres des résultats des tests
+  geom_text(data = df_summary_biomass, aes(x = order_comb,y=mean_BAR+10, label = letters),
+            color = "black", size = 4, vjust = -1,
+            position = position_nudge(x = -0.2))  # Positionner les lettres au-dessus des boîtes
 
+```
+
+## Compare slopes by localisation
+
+### Create Linear Model
+
+```{r}
+# ---- Add slope of Biomass accumulation rate ----
+# Age as.numeric
+filtered_data_selection <- filtered_data_selection %>%
+  mutate(Age_Plantation_annee = as.numeric(Age_Plantation_annee))
+
+# forcer les intercept à zero
+lm_BAR <- lm(BAR ~ 0 + Age_Plantation_annee + Combinaison:Age_Plantation_annee, data = filtered_data_selection)
+
+summary(lm_BAR)
+
+# Slopes extracion
+slope_summary <- filtered_data_selection %>% 
+  group_by(Combinaison) %>% 
+  summarise(
+    Localisation = unique(Localisation),
+    Nom_Vernaculaire = unique(Nom_Vernaculaire),
+    Age_Plantation_annee=1 # the prediction for age = 1 is the intercept + slope
+    )
+
+coeff <- coefficients(lm_BAR)
+intercept <- coeff["(Intercept)"][[1]]
+
+# Prediction
+slope_summary$slopes <- predict(lm_BAR, newdata = slope_summary)
+slope_summary <- slope_summary %>%
+  select(-Combinaison,-Age_Plantation_annee) %>%
+  arrange(Nom_Vernaculaire,slopes)
+slope_df <- as.data.frame(slope_summary) %>%
+  select(Combinaison,slopes)
+
+# ---- Result ----
+slope_df
+
+# ---- Add the slope to main dataframe ----
+filtered_data_selection <- filtered_data_selection %>%
+  left_join(slope_df, by = "Combinaison")
+```
+
+### Check Linear Model
+
+```{r}
+# ---- Prediction ---
+
+# Creation of new data.frame for prediction
+df_lm_pred <- filtered_data_selection %>% 
+  group_by(Combinaison) %>% 
+  summarise(
+    Localisation = unique(Localisation),
+    Nom_Vernaculaire = unique(Nom_Vernaculaire),
+    Age_Plantation_annee = c(0,20) # two point of prediction
+    )
+
+# Prediction on new data
+df_lm_pred$BAR <- predict(lm_BAR, newdata = df_lm_pred)
+
+# # ---- Selection ----
+# df <- filtered_data_selection[filtered_data_selection$Nom_Vernaculaire=="bagasse",]
+
+# ---- Plots ----
+ggplot(data = filtered_data_selection, aes(x = Age_Plantation_annee, y = BAR, color = Nom_Vernaculaire)) +
+  geom_point() +
+  geom_line(
+    data = df_lm_pred, 
+    aes(x = Age_Plantation_annee, y = BAR, color = Nom_Vernaculaire)
+    ) +
+  facet_wrap(~Combinaison, scales = "free_y") +
+  labs(
+    x = "Age (years)",
+    y = "BAR (kg/year)",
+    color = "Specie"
+  ) +
+  scale_color_manual(values = c("angelique" = "#8B0000", "yayamadou marecage" = "#00008B", "bagasse" = "#006400")) +  # Définir des couleurs spécifiques
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold", size = 14))
+```
+
+### Comparison plot
+
+```{r}
+
+ # forcer les intercept à zero
+lm_BAR_2 <- lm(BAR ~ 0 + Age_Plantation_annee + Combinaison:Age_Plantation_annee + Combinaison:Code_Arbre, data = filtered_data_selection)
+
+# ---- Arrange data by specie and increasing slopes ----
+filtered_data_selection <- filtered_data_selection %>%
+  arrange(Nom_Vernaculaire, slopes) %>%
+  mutate(order_sp = as.factor(dense_rank(Nom_Vernaculaire))) %>%
+  group_by(Nom_Vernaculaire) %>%
+  mutate(order_BAR = as.factor(dense_rank(slopes))) %>%
+  ungroup() %>%
+  # ranking for ploting order (1,1,2,3,3,3...)
+  mutate(order_comb = as.factor(paste(order_sp, order_BAR, sep = "")))
+
+# ---- Summary of mean per Localisation ----
+df_summary_slopes <- filtered_data_selection %>% group_by(Combinaison) %>% summarise(slopes = unique(slopes),order_comb = unique(order_comb),Localisation=unique(Localisation))
+  
+# ---- Boxplot ----
+ggplot(data = filtered_data_selection, aes(x = order_comb, y = slopes, color = Nom_Vernaculaire)) +
+  geom_boxplot(outlier.shape = 1, outlier.size = 1) + # Add box
+  # Add red point for mean values
+  stat_summary(data = df_summary_slopes, aes(x = order_comb, y = slopes), geom = "point", shape = 18, size = 4, color = "red") +
+  labs( # Axis labels
+    x = "Localisation",
+    y = expression("Slope " ~ frac(delta*AGB, delta*dt) ~ "(kg.year⁻¹.tree⁻¹)"),
+    color = "Specie"
+  ) +
+  scale_color_manual(values = c("angelique" = "#8B0000", "yayamadou marecage" = "#00008B", "bagasse" = "#006400")) +  # Définir des couleurs spécifiques
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14)  # Verticale orientation of x labels
+    ) +  
+  coord_cartesian(ylim = c(0, 2)) +
+  scale_x_discrete(labels = df_summary_biomass$Localisation)
 
 ```
 
@@ -595,10 +740,10 @@ ggplot(data = df_arrange, aes(x = order_comb, y = BAR, color = Nom_Vernaculaire)
 
 ```{r}
 
-M0 <- lm(BAR ~ 1, data = df_arrange)
-M1 <- lm(BAR ~ Nom_Vernaculaire, data = df_arrange)
-M2 <- lm(BAR ~ Localisation, data = df_arrange)
-M12 <- lm(BAR ~ Nom_Vernaculaire + Localisation, data = df_arrange)
+M0 <- lm(BAR ~ 1, data = filtered_data_selection)
+M1 <- lm(BAR ~ Nom_Vernaculaire, data = filtered_data_selection)
+M2 <- lm(BAR ~ Localisation, data = filtered_data_selection)
+M12 <- lm(BAR ~ Nom_Vernaculaire + Localisation, data = filtered_data_selection)
 
 aov(M0)
 aov(M1)
@@ -615,9 +760,9 @@ summary(M12)
 
 # TODO
 
--   Remove site filtration
+-   Test Stat sur mean_BAR (add to graphique)
 
--   BAR compute by linear slope (Anova/linear : don't forget interactions)
+-   Vérifier si le LM est adapté
 
 -   Try keep only last alive trees
 
