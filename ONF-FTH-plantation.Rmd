@@ -191,7 +191,15 @@ Inv_complet <- Inv_complet %>%
 
 # ---- as.factor for selected variables
 Inv_complet$Code_Essence <- as.factor(Inv_complet$Code_Essence)
-Inv_complet$Age_Plantation_annee <- as.factor(Inv_complet$Age_Plantation_annee)
+Inv_complet$Age_Plantation_annee_fac <- as.factor(Inv_complet$Age_Plantation_annee)
+
+# ---- Split Libelle_Plantation ----
+Inv_complet <- Inv_complet %>%
+  mutate(Localisation = substr(Libelle_Plantation, 1, 3)) %>% # Split name
+  mutate(Plot = substr(Libelle_Plantation, 4,nchar(Libelle_Plantation))) # Split name
+
+# ---- Add Height in meters ----
+Inv_complet$Hauteur_Totale_m <- Inv_complet$Hauteur_Totale / 100
 
 # ---- Result ----
 str(Inv_complet)
@@ -222,13 +230,83 @@ data_selection <- Inv_complet[Inv_complet$Nom_Vernaculaire %in% c("angelique","b
 #   filter(!combination %in% excluded_combinations$combination) %>%  # Exclure les combinaisons
 #   select(-combination)
 
-# ---- Split Libelle_Plantation ----
-data_selection <- data_selection %>%
-  mutate(Localisation = substr(Libelle_Plantation, 1, 3)) %>% # Split name
-  mutate(Plot = substr(Libelle_Plantation, 4,nchar(Libelle_Plantation))) # Split name
-
 # ---- Result ----
 data_selection
+```
+
+## Filtering (**Htot \~ DBH plot)**
+
+```{r}
+
+# ---- Initial PLOT ----
+ggplot(data_selection, aes(x = DBHCorr, y = Hauteur_Totale_m, color = Nom_Vernaculaire)) +
+  geom_point(size = 0.5) +  # Créer un nuage de points
+  labs(title = "H/D Ratio",
+       x = "DBH Corrected (cm)",
+       y = "Total Heigth (m)") +
+  theme_minimal() +       # Utiliser un thème minimal
+  theme(legend.title = element_text(size = 12), 
+        legend.text = element_text(size = 11)) +
+  theme(
+    axis.line = element_line(color = "gray"),  # Lignes des axes en noir
+    axis.text = element_text(color = "black"),  # Texte des axes en noir
+    axis.ticks = element_line(color = "black")  # Ticks des axes en noir
+  ) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "black") +  # Ajouter la droite H = 100*D en pointillé
+  annotate("text", x = 20, y = 30, label = "H = D", color = "black", 
+           size = 5, fontface = "italic")
+  
+# ---- Filter ----
+filtered_data_selection <- data_selection %>% 
+  filter(!is.na(Localisation)) %>% # remove NA site
+  filter(Etat_Sanitaire != 5) %>% # remove dead trees
+  filter(!is.na(DBHCorr)) %>% # remove NA from DBH
+  filter(Hauteur_Totale>0) %>% # remove 0 from DBH
+  filter(DBH>0) # remove 0 from Htot
+
+# ---- PLOT after filtering ----
+ggplot(filtered_data_selection, aes(x = DBHCorr, y = Hauteur_Totale_m, color = Nom_Vernaculaire)) +
+  geom_point(size = 0.5) +  # Créer un nuage de points
+  labs(title = "H/D Ratio",
+       x = "DBH Corrected (cm)",
+       y = "Total Heigth (m)") +
+  theme_minimal() +       # Utiliser un thème minimal
+  theme(legend.title = element_text(size = 12), 
+        legend.text = element_text(size = 10))+
+  theme(
+    axis.line = element_line(color = "gray"),  # Lignes des axes en noir
+    axis.text = element_text(color = "black"),  # Texte des axes en noir
+    axis.ticks = element_line(color = "black")  # Ticks des axes en noir
+  )
+
+```
+
+## Add initial states
+
+```{r}
+# ---- Generate Initial state for each individual ----
+# -- initial diameter and high --
+all_trees <- unique(filtered_data_selection$Code_Arbre)
+Initial_state <- data.frame(
+  "Code_Arbre" = all_trees, # for each individual
+  "Age_Plantation_annee" = rep(0,length(all_trees)), # at age 0
+  "DBHCorr" = rep(0,length(all_trees)),              # set diameter 0
+  "Hauteur_Totale" = rep(0,length(all_trees)),        # set height 0
+  "note_inventaire" = "Initial state"
+)
+# -- Set basic information to created data --
+# Nom_Vernaculaire, Famille, Genre, Espece
+# first make a reference
+ref_code_espece <- Inv_complet %>% distinct(Code_Arbre, .keep_all = TRUE)
+# then select rows of interest
+ref_code_espece <- ref_code_espece |> 
+  select("Code_Arbre", "Nom_Vernaculaire", "Famille", "Genre", "Espece","Localisation","Plot")
+# Make the correspondance for each Code_Arbre
+Initial_state <- left_join(Initial_state, ref_code_espece, by="Code_Arbre")
+# ---- Result ----
+Initial_state
+# -- Bind Initial_state to Inv_complet --
+filtered_data_selection <- bind_rows(filtered_data_selection,Initial_state)
 ```
 
 # Data Exploration
@@ -255,7 +333,6 @@ df_sp_plantation <- data_selection %>%
 
 # ---- Extract Year for each subplots ----
 df_year_plantation <- data_selection %>%
-  mutate(Age_Plantation_annee = as.numeric(Age_Plantation_annee)) %>% # Age in numeric
   group_by(Localisation) %>%         # For each Plot-Subplot
   arrange(Age_Plantation_annee) %>%        # arrange dates by Year trough inventories
   slice_head(n = 1) %>%                    #!# keep the oldest date possible 
@@ -406,73 +483,6 @@ ggplot(data = select_col_sp[select_col_sp$essence=="yayamadou marecage",], aes(x
   theme(plot.title = element_text(face = "bold", size = 14))
 ```
 
-# Filtering
-
-### **Htot \~ DBH plot**
-
-```{r}
-
-# ---- PLOT ----
-ggplot(data_selection, aes(x = DBHCorr, y = Hauteur_Totale, color = Nom_Vernaculaire)) +
-  geom_point(size = 0.5) +  # Créer un nuage de points
-  labs(title = "Hauteur Totale vs DBH Corrigé",
-       x = "DBH Corrigé (cm)",
-       y = "Hauteur Totale (m)") +
-  theme_minimal() +       # Utiliser un thème minimal
-  theme(legend.title = element_text(size = 12), 
-        legend.text = element_text(size = 10))  # Personnaliser la légende
-
-```
-
-### **Filter and new** **Htot \~ DBH plot**
-
-```{r}
-
-# ---- Filter ----
-filtered_data_selection <- data_selection %>% 
-  filter(!is.na(Localisation)) %>% # remove NA site
-  filter(Etat_Sanitaire != 5) %>% # remove dead trees
-  filter(!is.na(DBHCorr)) %>% # remove NA from DBH
-  filter(Hauteur_Totale>0) %>% # remove 0 from DBH
-  filter(DBH>0) %>% # remove 0 from Htot
-  mutate(Age_Plantation_annee = as.numeric(Age_Plantation_annee)) # as.numeric
-
-# ---- Generate Initial state for each individual ----
-# -- initial diameter and high --
-all_trees <- unique(filtered_data_selection$Code_Arbre)
-Initial_state <- data.frame(
-  "Code_Arbre" = all_trees, # for each individual
-  "Age_Plantation_annee" = rep(0,length(all_trees)), # at age 0
-  "DBHCorr" = rep(0,length(all_trees)),              # set diameter 0
-  "Hauteur_Totale" = rep(0,length(all_trees)),        # set height 0
-  "note_inventaire" = "Initial state"
-)
-# -- Set basic information to created data --
-# Nom_Vernaculaire, Famille, Genre, Espece
-# first make a reference
-ref_code_espece <- Inv_complet %>% distinct(Code_Arbre, .keep_all = TRUE)
-# then select rows of interest
-ref_code_espece <- ref_code_espece |> 
-  select("Code_Arbre", "Nom_Vernaculaire", "Famille", "Genre", "Espece","Libelle_Plantation")
-# Make the correspondance for each Code_Arbre
-Initial_state <- left_join(Initial_state, ref_code_espece, by="Code_Arbre")
-# ---- Result ----
-Initial_state
-# -- Bind Initial_state to Inv_complet --
-filtered_data_selection <- bind_rows(filtered_data_selection,Initial_state)
-
-
-# ---- PLOT ----
-ggplot(filtered_data_selection, aes(x = DBHCorr, y = Hauteur_Totale, color = Nom_Vernaculaire)) +
-  geom_point(size = 0.5) +  # Créer un nuage de points
-  labs(title = "Hauteur Totale vs DBH Corrigé",
-       x = "DBH Corrigé (cm)",
-       y = "Hauteur Totale (m)") +
-  theme_minimal() +       # Utiliser un thème minimal
-  theme(legend.title = element_text(size = 12), 
-        legend.text = element_text(size = 10))  # Personnaliser la légende
-```
-
 # Above Ground Biomasse (AGB)
 
 ## Estimation
@@ -563,9 +573,7 @@ ggplot(data = df, aes(x = Age_Plantation_annee, y = AGB_kg, color = Nom_Vernacul
 # ---- Calculation of intantateous rate (BAR) ---
 
 filtered_data_selection <- filtered_data_selection %>%
-  mutate(Age_Plantation_annee = as.numeric(Age_Plantation_annee)) %>% # Age as.numeric
-  mutate(BAR = AGB_kg / Age_Plantation_annee) %>% # Calcul of rate
-  mutate(Age_Plantation_annee = as.factor(Age_Plantation_annee)) # Age as.factor
+  mutate(BAR = AGB_kg / Age_Plantation_annee) # Calcul of rate
 
 # ---- Add Mean Biomass accumulation rate (mean_BAR) ----
 filtered_data_selection <- filtered_data_selection %>%
@@ -655,6 +663,12 @@ ggplot(df, aes(x = AGB_kg, y = pm, color = Nom_Vernaculaire)) +
 
 ```{r}
 
+# ---- Selection of year to finish ----
+df_BAR_loc <- filtered_data_selection %>%
+  filter(Age_Plantation_annee <= 20)
+
+# ---- Selection of trees alive in the last inventory ----
+
 # ---- Arrange data by specie and increasing mean_BAR ----
 filtered_data_selection <- filtered_data_selection %>%
   arrange(Nom_Vernaculaire, mean_BAR) %>%
@@ -706,7 +720,7 @@ ggplot(data = filtered_data_selection, aes(x = order_comb, y = BAR, color = Nom_
     ) +  
   coord_cartesian(ylim = c(0, 40)) +
   scale_x_discrete(labels = df_summary_biomass$Localisation)+
-  # Ajouter les lettres des résultats des tests
+  # Add letters from statistical test
   geom_text(data = df_summary_biomass, aes(x = order_comb,y=mean_BAR+10, label = letters),
             color = "black", size = 4, vjust = -1,
             position = position_nudge(x = -0.2))  # Positionner les lettres au-dessus des boîtes
@@ -733,106 +747,74 @@ summary(M12)
 # Yayamadou marecage is not significatively different than angelique for 
 ```
 
-# Compare AGB slopes by localisation
+# Linear Model AGB \~ Year
 
-## Linear Model
-
-### Creation
+## Plot
 
 ```{r}
-# ---- Add slope of Biomass accumulation rate ----
-# Age as.numeric
-filtered_data_selection <- filtered_data_selection %>%
-  mutate(Age_Plantation_annee = as.numeric(Age_Plantation_annee))
 
-# forcer les intercept à zero
-lm_AGB <- lm(AGB_kg ~ 0 + Combinaison:Age_Plantation_annee, data = filtered_data_selection)
-# lm_AGB <- glm(BAR ~ 0 + Age_Plantation_annee + Combinaison:Age_Plantation_annee, data = filtered_data_selection,family = Gamma())
-
-summary(lm_AGB)
-plot(lm_AGB)
-
-# Slopes extracion
-slope_summary <- filtered_data_selection %>% 
-  group_by(Combinaison) %>% 
-  summarise(
-    Localisation = unique(Localisation),
-    Nom_Vernaculaire = unique(Nom_Vernaculaire),
-    Age_Plantation_annee=1 # the prediction for age = 1 is the intercept + slope
-    )
-
-coeff <- coefficients(lm_AGB)
-intercept <- coeff["(Intercept)"][[1]]
-
-# Prediction
-slope_summary$slopes <- predict(lm_AGB, newdata = slope_summary)
-slope_df <- as.data.frame(slope_summary) %>%
-  arrange(Nom_Vernaculaire,slopes) %>%
-  select(Combinaison,slopes) 
-slope_summary <- as.data.frame(slope_summary) %>%
-  arrange(Nom_Vernaculaire,slopes) %>%
-  select(Nom_Vernaculaire,Localisation,slopes) %>%
-  rename("AGB slopes (kg/year/tree)" = "slopes")
-
-
-# ---- Result ----
-slope_df
-slope_summary
-
-# ---- Add the slope to main dataframe ----
-filtered_data_selection <- filtered_data_selection %>%
-  left_join(slope_df, by = "Combinaison")
-```
-
-### Checking
-
-```{r}
-# ---- Prediction ---
-
-# Creation of new data.frame for prediction
-df_lm_pred <- filtered_data_selection %>% 
-  group_by(Combinaison) %>% 
-  summarise(
-    Localisation = unique(Localisation),
-    Nom_Vernaculaire = unique(Nom_Vernaculaire),
-    Age_Plantation_annee = c(0,4,8,12,16,20) # Points of prediction
-    )
-
-# Prediction on new data
-df_lm_pred$AGB <- predict(lm_AGB, newdata = df_lm_pred)
-# # Convertir les prédictions sur l'échelle d'origine (décoder avec exp)
-# df_lm_pred$AGB <- df_lm_pred$AGB  # Transformation inverse (lien log)
-
-# # ---- Selection ----
-# df <- filtered_data_selection[filtered_data_selection$Nom_Vernaculaire=="bagasse",]
+# ---- Selection ----
+df <- filtered_data_selection[
+  filtered_data_selection$Combinaison %in% 
+    c("CHR - angelique",
+      "CHR - bagasse",
+      "RIS - yayamadou marecage"),]
 
 # ---- Plots ----
-ggplot(data = filtered_data_selection, aes(x = Age_Plantation_annee, y = AGB_kg, color = Nom_Vernaculaire)) +
+ggplot(data = df, aes(x = Age_Plantation_annee, y = AGB_kg, color = Nom_Vernaculaire)) +
   geom_point() +
-  geom_line(
-    data = df_lm_pred, 
-    aes(x = Age_Plantation_annee, y = AGB, color = Nom_Vernaculaire)
-    ) +
   geom_smooth(method = "lm", se=TRUE) +
   facet_wrap(~Combinaison, scales = "free_y") +
   labs(
     x = "Age (years)",
-    y = "BAR (kg/year)",
+    y = "AGB (kg)",
     color = "Specie"
   ) +
   scale_color_manual(values = c("angelique" = "lightpink", "yayamadou marecage" = "lightblue", "bagasse" = "lightgreen")) +  # Définir des couleurs spécifiques
   theme_minimal() +
-  theme(plot.title = element_text(face = "bold", size = 14))
+  theme(plot.title = element_text(face = "bold", size = 14)) +
+  theme(
+    axis.line = element_line(color = "gray"),  # Lignes des axes en noir
+    axis.text = element_text(color = "black"),  # Texte des axes en noir
+    axis.ticks = element_line(color = "black")  # Ticks des axes en noir
+  )
+```
+
+## Extract slopes
+
+```{r}
+# Créer une fonction qui extrait la pente de chaque modèle linéaire
+extract_slope <- function(data) {
+  model <- lm(AGB_kg ~ Age_Plantation_annee, data = data)
+  slope <- coef(model)[2][[1]]
+  R2 <- summary(model)$r.squared
+  return(list(slope = slope, R2 = R2))  # On prend le coefficient associé à Age_Plantation_annee (la pente)
+}
+
+# Appliquer cette fonction à chaque sous-groupe (par exemple, par combinaison ou nom vernaculaire)
+slope_summary <- filtered_data_selection %>%
+  group_by(Combinaison) %>%
+  group_split() %>%  # Diviser les groupes en sous-listes
+  purrr::map_dfr(~{
+    coeff <- extract_slope(.)
+    tibble(Nom_Vernaculaire = unique(.x$Nom_Vernaculaire),
+           Localisation=unique(.x$Localisation), 
+           slope = round(coeff$slope,digits = 2) ,
+           R_squared = round(coeff$R2,digits = 2)
+           )
+  })
+
+# Arrange and rename
+slope_summary <- as.data.frame(slope_summary) %>%
+  arrange(Nom_Vernaculaire,slope) %>%
+  rename("AGB slopes" = "slope")
+
+# Afficher les pentes pour chaque combinaison et nom vernaculaire
+print(slope_summary)
 ```
 
 # TODO
 
--   Test Stat sur mean_BAR (add to graphique)
-
--   Vérifier si le LM est adapté
-
 -   Try keep only last alive trees
-
--   Section on Proba survie / BAR
 
 -   
