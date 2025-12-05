@@ -154,6 +154,8 @@ set.seed(973)
 
 # Data Importation
 
+## Importation, convertion and corrections
+
 ```{r}
 #| echo: false
 library(tidyverse)
@@ -231,7 +233,7 @@ data_selection
 
 # Data Exploration
 
-## Sample table and dates
+## Table numbers and dates
 
 ```{r}
 #| echo: false
@@ -286,7 +288,7 @@ df_summary_plantation <- df_summary_plantation[, c("Localisation","Year_of_plant
 print(df_summary_plantation)
 ```
 
-## DBH (exploration)
+## Plot DBH
 
 ```{r}
 #| echo: false
@@ -312,7 +314,7 @@ ggplot(data = select_col_sp[select_col_sp$essence=="angelique",], aes(x = age, y
     y = "DBH (cm)",
     color = "Specie"
   ) +
-  scale_color_manual(values = c("angelique" = "#8B0000", "yayamadou marecage" = "#00008B", "bagasse" = "#006400")) +  # Définir des couleurs spécifiques
+  scale_color_manual(values = c("angelique" = "lightpink", "yayamadou marecage" = "lightblue", "bagasse" = "lightgreen")) +  # Définir des couleurs spécifiques
   theme_minimal() +
   theme(plot.title = element_text(face = "bold", size = 14))
 ```
@@ -329,7 +331,7 @@ ggplot(data = select_col_sp[select_col_sp$essence=="bagasse",], aes(x = age, y =
     y = "DBH (cm)",
     color = "Specie"
   ) +
-  scale_color_manual(values = c("angelique" = "#8B0000", "yayamadou marecage" = "#00008B", "bagasse" = "#006400")) +  # Définir des couleurs spécifiques
+  scale_color_manual(values = c("angelique" = "lightpink", "yayamadou marecage" = "lightblue", "bagasse" = "lightgreen")) +  # Définir des couleurs spécifiques
   theme_minimal() +
   theme(plot.title = element_text(face = "bold", size = 14))
 ```
@@ -346,12 +348,12 @@ ggplot(data = select_col_sp[select_col_sp$essence=="yayamadou marecage",], aes(x
     y = "DBH (cm)",
     color = "Specie"
   ) +
-  scale_color_manual(values = c("angelique" = "#8B0000", "yayamadou marecage" = "#00008B", "bagasse" = "#006400")) +  # Définir des couleurs spécifiques
+  scale_color_manual(values = c("angelique" = "lightpink", "yayamadou marecage" = "lightblue", "bagasse" = "lightgreen")) +  # Définir des couleurs spécifiques
   theme_minimal() +
   theme(plot.title = element_text(face = "bold", size = 14))
 ```
 
-## Total Heigth (exploration)
+## Plots Height
 
 ```{r}
 #| echo: false
@@ -365,7 +367,7 @@ ggplot(data = select_col_sp[select_col_sp$essence=="angelique",], aes(x = age, y
     y = "Total Height (cm)",
     color = "Specie"
   ) +
-  scale_color_manual(values = c("angelique" = "#8B0000", "yayamadou marecage" = "#00008B", "bagasse" = "#006400")) +  # Définir des couleurs spécifiques
+  scale_color_manual(values = c("angelique" = "lightpink", "yayamadou marecage" = "lightblue", "bagasse" = "lightgreen")) +  # Définir des couleurs spécifiques
   theme_minimal() +
   theme(plot.title = element_text(face = "bold", size = 14))
 ```
@@ -382,7 +384,7 @@ ggplot(data = select_col_sp[select_col_sp$essence=="bagasse",], aes(x = age, y =
     y = "Total Height (cm)",
     color = "Specie"
   ) +
-  scale_color_manual(values = c("angelique" = "#8B0000", "yayamadou marecage" = "#00008B", "bagasse" = "#006400")) +  # Définir des couleurs spécifiques
+  scale_color_manual(values = c("angelique" = "lightpink", "yayamadou marecage" = "lightblue", "bagasse" = "lightgreen")) +  # Définir des couleurs spécifiques
   theme_minimal() +
   theme(plot.title = element_text(face = "bold", size = 14))
 ```
@@ -399,14 +401,12 @@ ggplot(data = select_col_sp[select_col_sp$essence=="yayamadou marecage",], aes(x
     y = "Total Height (cm)",
     color = "Specie"
   ) +
-  scale_color_manual(values = c("angelique" = "#8B0000", "yayamadou marecage" = "#00008B", "bagasse" = "#006400")) +  # Définir des couleurs spécifiques
+  scale_color_manual(values = c("angelique" = "lightpink", "yayamadou marecage" = "lightblue", "bagasse" = "lightgreen")) +  # Définir des couleurs spécifiques
   theme_minimal() +
   theme(plot.title = element_text(face = "bold", size = 14))
 ```
 
-# Biomasse Estimation
-
-## Filtering
+# Filtering
 
 ### **Htot \~ DBH plot**
 
@@ -434,7 +434,33 @@ filtered_data_selection <- data_selection %>%
   filter(Etat_Sanitaire != 5) %>% # remove dead trees
   filter(!is.na(DBHCorr)) %>% # remove NA from DBH
   filter(Hauteur_Totale>0) %>% # remove 0 from DBH
-  filter(DBH>0) # remove 0 from Htot
+  filter(DBH>0) %>% # remove 0 from Htot
+  mutate(Age_Plantation_annee = as.numeric(Age_Plantation_annee)) # as.numeric
+
+# ---- Generate Initial state for each individual ----
+# -- initial diameter and high --
+all_trees <- unique(filtered_data_selection$Code_Arbre)
+Initial_state <- data.frame(
+  "Code_Arbre" = all_trees, # for each individual
+  "Age_Plantation_annee" = rep(0,length(all_trees)), # at age 0
+  "DBHCorr" = rep(0,length(all_trees)),              # set diameter 0
+  "Hauteur_Totale" = rep(0,length(all_trees)),        # set height 0
+  "note_inventaire" = "Initial state"
+)
+# -- Set basic information to created data --
+# Nom_Vernaculaire, Famille, Genre, Espece
+# first make a reference
+ref_code_espece <- Inv_complet %>% distinct(Code_Arbre, .keep_all = TRUE)
+# then select rows of interest
+ref_code_espece <- ref_code_espece |> 
+  select("Code_Arbre", "Nom_Vernaculaire", "Famille", "Genre", "Espece","Libelle_Plantation")
+# Make the correspondance for each Code_Arbre
+Initial_state <- left_join(Initial_state, ref_code_espece, by="Code_Arbre")
+# ---- Result ----
+Initial_state
+# -- Bind Initial_state to Inv_complet --
+filtered_data_selection <- bind_rows(filtered_data_selection,Initial_state)
+
 
 # ---- PLOT ----
 ggplot(filtered_data_selection, aes(x = DBHCorr, y = Hauteur_Totale, color = Nom_Vernaculaire)) +
@@ -447,7 +473,9 @@ ggplot(filtered_data_selection, aes(x = DBHCorr, y = Hauteur_Totale, color = Nom
         legend.text = element_text(size = 10))  # Personnaliser la légende
 ```
 
-## Density and Biomass
+# Above Ground Biomasse (AGB)
+
+## Estimation
 
 ```{r}
 library(BIOMASS)
@@ -464,7 +492,7 @@ filtered_data_selection
 
 ```
 
-## Biomass plots
+## Plots
 
 ### Angélique
 
@@ -481,7 +509,7 @@ ggplot(data = df, aes(x = Age_Plantation_annee, y = AGB_kg, color = Nom_Vernacul
     y = "AGB (kg)",
     color = "Specie"
   ) +
-  scale_color_manual(values = c("angelique" = "#8B0000", "yayamadou marecage" = "#00008B", "bagasse" = "#006400")) +  # Définir des couleurs spécifiques
+  scale_color_manual(values = c("angelique" = "lightpink", "yayamadou marecage" = "lightblue", "bagasse" = "lightgreen")) +  # Définir des couleurs spécifiques
   theme_minimal() +
   theme(plot.title = element_text(face = "bold", size = 14))
 ```
@@ -501,7 +529,7 @@ ggplot(data = df, aes(x = Age_Plantation_annee, y = AGB_kg, color = Nom_Vernacul
     y = "AGB (kg)",
     color = "Specie"
   ) +
-  scale_color_manual(values = c("angelique" = "#8B0000", "yayamadou marecage" = "#00008B", "bagasse" = "#006400")) +  # Définir des couleurs spécifiques
+  scale_color_manual(values = c("angelique" = "lightpink", "yayamadou marecage" = "lightblue", "bagasse" = "lightgreen")) +  # Définir des couleurs spécifiques
   theme_minimal() +
   theme(plot.title = element_text(face = "bold", size = 14))
 ```
@@ -521,26 +549,39 @@ ggplot(data = df, aes(x = Age_Plantation_annee, y = AGB_kg, color = Nom_Vernacul
     y = "AGB (kg)",
     color = "Specie"
   ) +
-  scale_color_manual(values = c("angelique" = "#8B0000", "yayamadou marecage" = "#00008B", "bagasse" = "#006400")) +  # Définir des couleurs spécifiques
+  scale_color_manual(values = c("angelique" = "lightpink", "yayamadou marecage" = "lightblue", "bagasse" = "lightgreen")) +  # Définir des couleurs spécifiques
   theme_minimal() +
   theme(plot.title = element_text(face = "bold", size = 14))
 ```
 
-# Biomass accumulation rate
+# Biomass accumulation rate (BAR)
 
-## BAR and BAR per species
+## Calculation
 
 ```{r}
 
-# ---- Calculation of intantateous rate ---
+# ---- Calculation of intantateous rate (BAR) ---
 
 filtered_data_selection <- filtered_data_selection %>%
   mutate(Age_Plantation_annee = as.numeric(Age_Plantation_annee)) %>% # Age as.numeric
   mutate(BAR = AGB_kg / Age_Plantation_annee) %>% # Calcul of rate
   mutate(Age_Plantation_annee = as.factor(Age_Plantation_annee)) # Age as.factor
 
-# ---- Selection ----
-df <- filtered_data_selection
+# ---- Add Mean Biomass accumulation rate (mean_BAR) ----
+filtered_data_selection <- filtered_data_selection %>%
+  group_by(Localisation, Nom_Vernaculaire) %>%
+  mutate(
+    mean_BAR = mean(BAR, na.rm = TRUE),
+    Combinaison = paste(Localisation, Nom_Vernaculaire, sep = " - ")
+    ) %>%
+  ungroup()
+```
+
+## Plots
+
+### Boxpot BAR per species
+
+```{r}
 
 # ---- Plots ----
 ggplot(data = filtered_data_selection, aes(x = Nom_Vernaculaire, y = AGB_kg, color = Nom_Vernaculaire)) +
@@ -551,7 +592,7 @@ ggplot(data = filtered_data_selection, aes(x = Nom_Vernaculaire, y = AGB_kg, col
     y = "BAR (kg/year)",
     color = "Specie"
   ) +
-  scale_color_manual(values = c("angelique" = "#8B0000", "yayamadou marecage" = "#00008B", "bagasse" = "#006400")) +  # Définir des couleurs spécifiques
+  scale_color_manual(values = c("angelique" = "lightpink", "yayamadou marecage" = "lightblue", "bagasse" = "lightgreen")) +  # Définir des couleurs spécifiques
   theme_minimal() +
   theme(plot.title = element_text(face = "bold", size = 14))+
   coord_cartesian(ylim = c(0, 600))
@@ -559,7 +600,7 @@ ggplot(data = filtered_data_selection, aes(x = Nom_Vernaculaire, y = AGB_kg, col
 
 ```
 
-### plot BAR/ABG
+### Scatter BAR on AGB
 
 ```{r}
 df <- filtered_data_selection[filtered_data_selection$Nom_Vernaculaire=="bagasse",]
@@ -579,7 +620,7 @@ ggplot(df, aes(x = AGB_kg, y = BAR, color = Nom_Vernaculaire)) +
 # ON NE PEUT PAS COMPARER DES PARCELLES À DES AGES DIFFÉRENTS
 ```
 
-### plot pm/AGB
+### Scatter Pm on AGB (Not finished)
 
 ```{r}
 data_selection <- data_selection %>%
@@ -610,19 +651,10 @@ ggplot(df, aes(x = AGB_kg, y = pm, color = Nom_Vernaculaire)) +
         legend.text = element_text(size = 10))  # Personnaliser la légende
 ```
 
-## Compare mean_BAR per localisation
+### Boxplot mean_BAR per localisation
 
 ```{r}
 
-# ---- Add mean Biomass accumulation rate ----
-filtered_data_selection <- filtered_data_selection %>%
-  group_by(Localisation, Nom_Vernaculaire) %>%
-  mutate(
-    mean_BAR = mean(BAR, na.rm = TRUE),
-    Combinaison = paste(Localisation, Nom_Vernaculaire, sep = " - ")
-    ) %>%
-  ungroup()
-  
 # ---- Arrange data by specie and increasing mean_BAR ----
 filtered_data_selection <- filtered_data_selection %>%
   arrange(Nom_Vernaculaire, mean_BAR) %>%
@@ -636,7 +668,7 @@ filtered_data_selection <- filtered_data_selection %>%
 # ---- Summary of mean per Localisation ----
 df_summary_biomass <- filtered_data_selection %>% group_by(Combinaison) %>% summarise(mean_BAR = mean(BAR),order_comb = unique(order_comb),Localisation=unique(Localisation)) %>% arrange(order_comb)
 
-# ---- Test statistiques ----
+# ---- Statistical tests  ----
 # Normality test
 shapiro_results <- filtered_data_selection %>%
   group_by(order_comb) %>%
@@ -667,7 +699,7 @@ ggplot(data = filtered_data_selection, aes(x = order_comb, y = BAR, color = Nom_
     y = expression("Mean " ~ frac(delta*AGB, delta*dt) ~ "(kg.year⁻¹.tree⁻¹)"),
     color = "Specie"
   ) +
-  scale_color_manual(values = c("angelique" = "#8B0000", "yayamadou marecage" = "#00008B", "bagasse" = "#006400")) +  # Définir des couleurs spécifiques
+  scale_color_manual(values = c("angelique" = "lightpink", "yayamadou marecage" = "lightblue", "bagasse" = "lightgreen")) +  # Définir des couleurs spécifiques
   theme_minimal() +
   theme(
     plot.title = element_text(face = "bold", size = 14)  # Verticale orientation of x labels
@@ -681,9 +713,31 @@ ggplot(data = filtered_data_selection, aes(x = order_comb, y = BAR, color = Nom_
 
 ```
 
-## Compare slopes by localisation
+# 2-way ANOVA model
 
-### Create Linear Model
+```{r}
+
+M0 <- glm(BAR ~ 1, data = filtered_data_selection,family=Gamma())
+M1 <- glm(BAR ~ Nom_Vernaculaire, data = filtered_data_selection,family=Gamma())
+M2 <- glm(BAR ~ Localisation, data = filtered_data_selection,family=Gamma())
+M12 <- glm(AGB_kg ~ 0+Nom_Vernaculaire + Localisation, 
+              data = filtered_data_selection, family=Gamma())
+lm_M12 <- lm(AGB_kg ~ 0+Nom_Vernaculaire + Localisation, 
+              data = filtered_data_selection)
+
+anova(M0,M2,M12) 
+# There is a significant effect of Localisation in the heart rate
+
+# I can also see the result of the full model at the end of the summary
+summary(M12)
+# Yayamadou marecage is not significatively different than angelique for 
+```
+
+# Compare AGB slopes by localisation
+
+## Linear Model
+
+### Creation
 
 ```{r}
 # ---- Add slope of Biomass accumulation rate ----
@@ -730,7 +784,7 @@ filtered_data_selection <- filtered_data_selection %>%
   left_join(slope_df, by = "Combinaison")
 ```
 
-### Check Linear Model
+### Checking
 
 ```{r}
 # ---- Prediction ---
@@ -766,69 +820,9 @@ ggplot(data = filtered_data_selection, aes(x = Age_Plantation_annee, y = AGB_kg,
     y = "BAR (kg/year)",
     color = "Specie"
   ) +
-  scale_color_manual(values = c("angelique" = "#8B0000", "yayamadou marecage" = "#00008B", "bagasse" = "#006400")) +  # Définir des couleurs spécifiques
+  scale_color_manual(values = c("angelique" = "lightpink", "yayamadou marecage" = "lightblue", "bagasse" = "lightgreen")) +  # Définir des couleurs spécifiques
   theme_minimal() +
   theme(plot.title = element_text(face = "bold", size = 14))
-```
-
-### Comparison plot
-
-```{r}
-
- # forcer les intercept à zero
-lm_AGB_2 <- lm(BAR ~ 0 + Age_Plantation_annee + Combinaison:Age_Plantation_annee + Combinaison:Code_Arbre, data = filtered_data_selection)
-
-# ---- Arrange data by specie and increasing slopes ----
-filtered_data_selection <- filtered_data_selection %>%
-  arrange(Nom_Vernaculaire, slopes) %>%
-  mutate(order_sp = as.factor(dense_rank(Nom_Vernaculaire))) %>%
-  group_by(Nom_Vernaculaire) %>%
-  mutate(order_BAR = as.factor(dense_rank(slopes))) %>%
-  ungroup() %>%
-  # ranking for ploting order (1,1,2,3,3,3...)
-  mutate(order_comb = as.factor(paste(order_sp, order_BAR, sep = "")))
-
-# ---- Summary of mean per Localisation ----
-df_summary_slopes <- filtered_data_selection %>% group_by(Combinaison) %>% summarise(slopes = unique(slopes),order_comb = unique(order_comb),Localisation=unique(Localisation))
-  
-# ---- Boxplot ----
-ggplot(data = filtered_data_selection, aes(x = order_comb, y = slopes, color = Nom_Vernaculaire)) +
-  geom_boxplot(outlier.shape = 1, outlier.size = 1) + # Add box
-  # Add red point for mean values
-  stat_summary(data = df_summary_slopes, aes(x = order_comb, y = slopes), geom = "point", shape = 18, size = 4, color = "red") +
-  labs( # Axis labels
-    x = "Localisation",
-    y = expression("Slope " ~ frac(delta*AGB, delta*dt) ~ "(kg.year⁻¹.tree⁻¹)"),
-    color = "Specie"
-  ) +
-  scale_color_manual(values = c("angelique" = "#8B0000", "yayamadou marecage" = "#00008B", "bagasse" = "#006400")) +  # Définir des couleurs spécifiques
-  theme_minimal() +
-  theme(
-    plot.title = element_text(face = "bold", size = 14)  # Verticale orientation of x labels
-    ) +  
-  coord_cartesian(ylim = c(0, 2)) +
-  scale_x_discrete(labels = df_summary_biomass$Localisation)
-
-```
-
-## 2-way ANOVA model
-
-```{r}
-
-M0 <- glm(BAR ~ 1, data = filtered_data_selection,family=Gamma())
-M1 <- glm(BAR ~ Nom_Vernaculaire, data = filtered_data_selection,family=Gamma())
-M2 <- glm(BAR ~ Localisation, data = filtered_data_selection,family=Gamma())
-M12 <- glm(AGB_kg ~ 0+Nom_Vernaculaire + Localisation, 
-              data = filtered_data_selection, family=Gamma())
-lm_M12 <- lm(AGB_kg ~ 0+Nom_Vernaculaire + Localisation, 
-              data = filtered_data_selection)
-
-anova(M0,M2,M12) 
-# There is a significant effect of Localisation in the heart rate
-
-# I can also see the result of the full model at the end of the summary
-summary(M12)
-# Yayamadou marecage is not significatively different than angelique for 
 ```
 
 # TODO
