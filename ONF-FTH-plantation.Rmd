@@ -324,12 +324,24 @@ filtered_data_selection <- bind_rows(filtered_data_selection,Initial_state)
 #   summarise()
 
 # ---- Count table per sites and species ----
-df_sp_plantation <- data_selection %>% 
-  select("Localisation", "Nom_Vernaculaire") %>%
-  table() %>% 
-  addmargins() %>% 
-  as.data.frame() %>%
-  pivot_wider(names_from = Nom_Vernaculaire, values_from = Freq)
+df_sp_count <- data_selection %>%
+  group_by(Localisation, Nom_Vernaculaire) %>% # for each localisation and specie
+  summarise(nb_indiv = n_distinct(Code_Arbre)) %>% # count individuals
+  pivot_wider(names_from = Nom_Vernaculaire, values_from = nb_indiv) %>%
+  replace_na(list(
+    `bagasse` = 0, 
+    `angelique` = 0, 
+    `yayamadou marecage` = 0
+  ))
+# Row for Sum
+sum_row <- df_sp_count %>%
+  group_by() %>%
+  summarise(across(2:4, sum, na.rm = TRUE))
+
+# Add the row to table
+df_sp_count <- bind_rows(df_sp_count, sum_row) %>%
+  mutate(Localisation = ifelse(is.na(Localisation), "Total", Localisation))
+
 
 # ---- Extract Year for each subplots ----
 df_year_plantation <- data_selection %>%
@@ -349,7 +361,7 @@ df_year_plantation <- data_selection %>%
   mutate(Age_of_trees = 2025 - Year_of_plantation) # Add trees age
 
 # ---- Join count table and years df ----
-df_summary_plantation <- left_join(df_sp_plantation,df_year_plantation,by="Localisation")
+df_summary_plantation <- left_join(df_sp_count,df_year_plantation,by="Localisation")
 
 # # ---- Complete name of des site de plantations ---- TODO
 # df_name_plantation <- data.frame(
@@ -590,14 +602,25 @@ filtered_data_selection <- filtered_data_selection %>%
 ### Boxpot BAR per species
 
 ```{r}
+# ---- Selection of year to finish ----
+df <- filtered_data_selection %>%
+  filter(Age_Plantation_annee <= 20) %>% # keep age lower than 20
+  # keep the oldest inventory
+  
+  # group_by(Code_Arbre) %>%         # For each individual
+  # arrange(Age_Plantation_annee) %>%        # arrange dates by Year trough inventories
+  # slice_head(n = 1) %>%                    #!# keep the oldest 
+  # ungroup()                           # Enable selection
+
+# ---- Selection of trees alive in the last inventory ----
 
 # ---- Plots ----
-ggplot(data = filtered_data_selection, aes(x = Nom_Vernaculaire, y = AGB_kg, color = Nom_Vernaculaire)) +
+ggplot(data = df, aes(x = Nom_Vernaculaire, y = AGB_kg, color = Nom_Vernaculaire)) +
   geom_boxplot() +
   #facet_wrap(~Localisation, scales = "free_y") +
   labs(
     x = "Age (years)",
-    y = "BAR (kg/year)",
+    y = "AGB (kg)",
     color = "Specie"
   ) +
   scale_color_manual(values = c("angelique" = "lightpink", "yayamadou marecage" = "lightblue", "bagasse" = "lightgreen")) +  # Définir des couleurs spécifiques
@@ -718,7 +741,7 @@ ggplot(data = filtered_data_selection, aes(x = order_comb, y = BAR, color = Nom_
   theme(
     plot.title = element_text(face = "bold", size = 14)  # Verticale orientation of x labels
     ) +  
-  coord_cartesian(ylim = c(0, 40)) +
+  coord_cartesian(ylim = c(0, 50)) +
   scale_x_discrete(labels = df_summary_biomass$Localisation)+
   # Add letters from statistical test
   geom_text(data = df_summary_biomass, aes(x = order_comb,y=mean_BAR+10, label = letters),
